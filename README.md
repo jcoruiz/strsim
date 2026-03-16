@@ -190,11 +190,10 @@ match := strsim.FindBestMatch("query", candidates, jw)
 
 | Algorithm | Rune (ns/op) | ASCII (ns/op) | Speedup |
 |---|---|---|---|
-| Hamming | 113 | 10 | **11x** |
-| Damerau-Levenshtein | 17,337 | 7,113 | **2.4x** |
-| Jaro-Winkler | 474 | 341 | **1.4x** |
-| LCS | 1,574 | 1,373 | 1.15x |
-| Levenshtein | 3,039 | 2,885 | 1.05x |
+| Hamming | 117 | 11 | **11x** |
+| Damerau-Levenshtein | 17,477 | 6,804 | **2.6x** |
+| Jaro-Winkler | 493 | 234 | **2.1x** |
+| Levenshtein | 3,144 | 2,787 | 1.1x |
 
 Inputs: 43-char ASCII strings.
 
