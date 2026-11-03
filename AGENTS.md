@@ -46,7 +46,7 @@ Format: `<type>(<scope>): <subject>`
 - **Breaking changes**: `feat(scope)!: ...` plus a `BREAKING CHANGE: ...` footer.
 - One logical change per commit; don't mix refactors with features.
 - No `Co-Authored-By` or AI attribution lines.
-- Enforced locally by `scripts/hooks/commit-msg` (enable once per clone with `git config core.hooksPath scripts/hooks`) and on GitHub by a ruleset on the default branch that rejects any push containing a non-conforming commit.
+- Enforced locally by `scripts/hooks/commit-msg` (enable once per clone with `git config core.hooksPath scripts/hooks`) and in CI by the `commits` job, which runs the same hook on every pushed commit and on pull request titles. (A GitHub ruleset can't do it: this account doesn't support commit message rules.)
 
 Examples:
 
@@ -59,7 +59,7 @@ docs(readme): update benchmark numbers from a fresh run
 
 ## Pull requests
 
-- Title follows the same format: it becomes the squash commit, which the ruleset checks.
+- Title follows the same format: it becomes the squash commit, and the `commits` job checks it.
 - Description: short summary of the change and how it was verified. No AI attribution.
 
 ## Branches
