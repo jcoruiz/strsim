@@ -96,6 +96,7 @@ func TestMetaphone(t *testing.T) {
 		// Initial CH is X, as in Philips' rules (Commons Codec gives KRX).
 		{name: "Church", input: "Church", want: "XRX"},
 		{name: "single_h", input: "H", want: "H"},
+		{name: "diacritics_folded", input: "Ñandú", want: "NNT"},
 	}
 
 	for _, tt := range tests {

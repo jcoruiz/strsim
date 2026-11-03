@@ -316,6 +316,11 @@ func TestDoubleMetaphone(t *testing.T) {
 		{name: "MacGregor", input: "Mac Gregor", wantPri: "MKRK", wantAlt: "MKRK"},
 		// Codes never contain spaces, even where the reference adds nothing.
 		{name: "Maharaj", input: "Maharaj", wantPri: "MHRJ", wantAlt: "MHR"},
+		// Latin diacritics are folded before encoding.
+		{name: "Muñoz", input: "Muñoz", wantPri: "MNS", wantAlt: "MNS"},
+		{name: "Gómez", input: "Gómez", wantPri: "KMS", wantAlt: "KMS"},
+		{name: "Ñuñez", input: "Ñuñez", wantPri: "NNS", wantAlt: "NNS"},
+		{name: "García_decomposed", input: "Garci\u0301a", wantPri: "KRS", wantAlt: "KRX"},
 		{name: "OBrien", input: "O'Brien", wantPri: "APRN", wantAlt: "APRN"},
 		{name: "non_latin", input: "東京", wantPri: "", wantAlt: ""},
 
