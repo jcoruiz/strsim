@@ -9,7 +9,7 @@ func TestMetaphone(t *testing.T) {
 		want  string
 	}{
 		{name: "Smith", input: "Smith", want: "SM0"},
-		{name: "Schmidt", input: "Schmidt", want: "SXMT"},
+		{name: "Schmidt", input: "Schmidt", want: "SKMT"},
 		{name: "John", input: "John", want: "JN"},
 		{name: "Phone", input: "Phone", want: "FN"},
 		{name: "Thomas", input: "Thomas", want: "0MS"},
@@ -32,7 +32,7 @@ func TestMetaphone(t *testing.T) {
 		{name: "single_consonant", input: "B", want: "B"},
 		{name: "Xerox", input: "Xerox", want: "SRKS"},
 		{name: "Why", input: "Why", want: ""},
-		{name: "Whole", input: "Whole", want: "HL"},
+		{name: "Whole", input: "Whole", want: "WL"},
 		{name: "Thumb", input: "Thumb", want: "0M"},
 
 		// SC before I/E/Y → skip C
@@ -52,7 +52,7 @@ func TestMetaphone(t *testing.T) {
 		// G before H: GH + vowel → K
 		{name: "Ghee", input: "Ghee", want: "K"},
 		// GN at end → G silent
-		{name: "Sign", input: "Sign", want: "S"},
+		{name: "Sign", input: "Sign", want: "SN"},
 		// G before I/E/Y after another G → skip (silent second G)
 		{name: "Eggs", input: "Eggs", want: "EKS"},
 		// G before I/E/Y not after G → J
@@ -73,7 +73,7 @@ func TestMetaphone(t *testing.T) {
 		{name: "Phi", input: "Phi", want: "F"},
 		// H before vowel after non-vowel → H
 		// H between vowels → silent
-		{name: "Ohio", input: "Ohio", want: "O"},
+		{name: "Ohio", input: "Ohio", want: "OH"},
 		// CH → X
 		{name: "Ache", input: "Ache", want: "AX"},
 		// Accept → CC handling
@@ -86,6 +86,16 @@ func TestMetaphone(t *testing.T) {
 		{name: "Stew", input: "Stew", want: "ST"},
 		// Duplicate adjacent letters (not C) → skip
 		{name: "Hippo", input: "Hippo", want: "HP"},
+		// Reference values, checked against Apache Commons Codec.
+		{name: "White", input: "White", want: "WT"},
+		{name: "Watch", input: "Watch", want: "WX"},
+		{name: "School", input: "School", want: "SKL"},
+		{name: "Acacia", input: "Acacia", want: "AKX"},
+		{name: "Signed", input: "Signed", want: "SNT"},
+		{name: "Cohen", input: "Cohen", want: "KHN"},
+		// Initial CH is X, as in Philips' rules (Commons Codec gives KRX).
+		{name: "Church", input: "Church", want: "XRX"},
+		{name: "single_h", input: "H", want: "H"},
 	}
 
 	for _, tt := range tests {

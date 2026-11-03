@@ -39,7 +39,8 @@ var soundexTable = [26]byte{
 // It maps a name to a four-character code consisting of one letter followed
 // by three digits, enabling approximate matching of names that sound alike.
 type SoundexEncoder struct {
-	// MaxLength is the length of the generated Soundex code. Default is 4.
+	// MaxLength is the length of the generated Soundex code. Values <= 0 use
+	// the default of 4.
 	MaxLength int
 }
 
@@ -60,29 +61,31 @@ func SoundexMatch(a, b string) bool {
 	return NewSoundex().Match(a, b)
 }
 
-// Encode returns the Soundex code for the given string. It returns an empty
-// string if the input contains no ASCII letters.
+// Encode returns the Soundex code for the given string. Latin diacritics are
+// folded (é → E) and other non-letters are ignored. It returns an empty string
+// if the input contains no letters.
 func (e *SoundexEncoder) Encode(s string) string {
 	length := e.MaxLength
 	if length <= 0 {
 		length = defaultSoundexLength
 	}
 
-	// Extract ASCII letters only.
-	letters := toASCIIAlpha(s)
+	var lettersBuf [32]byte
+	letters := appendLetters(lettersBuf[:0], s, false)
 	if len(letters) == 0 {
 		return ""
 	}
 
-	// Build the code: first character (uppercase) + digits.
-	buf := make([]byte, 0, length)
-	first := toUpper(letters[0])
+	// Build the code: first letter + digits.
+	var codeBuf [8]byte
+	buf := codeBuf[:0]
+	first := letters[0]
 	buf = append(buf, first)
 
 	prevCode := soundexTable[first-'A']
 
 	for i := 1; i < len(letters) && len(buf) < length; i++ {
-		ch := toUpper(letters[i])
+		ch := letters[i]
 		code := soundexTable[ch-'A']
 
 		if code == '0' {
@@ -113,31 +116,4 @@ func (e *SoundexEncoder) Encode(s string) string {
 // Match reports whether two strings produce the same Soundex code.
 func (e *SoundexEncoder) Match(a, b string) bool {
 	return e.Encode(a) == e.Encode(b)
-}
-
-// toASCIIAlpha returns only the ASCII alphabetic characters from s as a
-// byte slice, each character in its original case.
-func toASCIIAlpha(s string) []byte {
-	out := make([]byte, 0, len(s))
-
-	for _, r := range s {
-		if r >= 'A' && r <= 'Z' {
-			out = append(out, byte(r))
-		} else if r >= 'a' && r <= 'z' {
-			out = append(out, byte(r))
-		}
-		// Skip non-ASCII letters: phonetic encoding only operates on
-		// ASCII alphabetic characters.
-	}
-
-	return out
-}
-
-// toUpper converts an ASCII letter to uppercase.
-func toUpper(b byte) byte {
-	if b >= 'a' && b <= 'z' {
-		return b - 32
-	}
-
-	return b
 }

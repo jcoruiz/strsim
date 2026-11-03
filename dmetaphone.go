@@ -9,8 +9,14 @@ const defaultDMMaxLength = 4
 // Philips. It produces two phonetic codes (primary and alternate) that capture
 // different possible pronunciations, accounting for non-English name origins
 // including Germanic, Slavic, Celtic, Greek, Italian, Spanish, and Chinese.
+//
+// The rules follow Philips' reference implementation as ported by Apache
+// Commons Codec. Unlike that port, codes never contain spaces: where the
+// reference adds nothing to one of the codes ("Raj" → RJ / R), so does this
+// encoder.
 type DoubleMetaphoneEncoder struct {
-	// MaxLength is the maximum length of each generated code. Default is 4.
+	// MaxLength is the maximum length of each generated code. Values <= 0 use
+	// the default of 4.
 	MaxLength int
 }
 
@@ -33,217 +39,27 @@ func DoubleMetaphoneMatch(a, b string) bool {
 }
 
 // Encode returns the primary and alternate Double Metaphone codes for the
-// given string. Both codes are empty if the input contains no ASCII letters.
+// given string. Latin diacritics are folded (é → E), and words are kept apart
+// because some rules look at word boundaries ("San Jose", "Mac Gregor"). Both
+// codes are empty if the input contains no letters.
 func (e *DoubleMetaphoneEncoder) Encode(s string) (primary, alternate string) {
 	maxLen := e.MaxLength
 	if maxLen <= 0 {
 		maxLen = defaultDMMaxLength
 	}
 
-	letters := toASCIIAlpha(s)
-	if len(letters) == 0 {
+	var lettersBuf [32]byte
+	w := string(appendLetters(lettersBuf[:0], s, true))
+	if w == "" {
 		return "", ""
 	}
 
-	word := strings.ToUpper(string(letters))
+	d := dmState{w: w, slavo: dmIsSlavoGermanic(w), max: maxLen}
+	d.pri.Grow(maxLen)
+	d.alt.Grow(maxLen)
+	d.encode()
 
-	// Pad the word to avoid bounds checking.
-	padded := word + "     "
-	n := len(word)
-
-	var pri, alt strings.Builder
-	pri.Grow(maxLen + 2)
-	alt.Grow(maxLen + 2)
-
-	slavoGermanic := dmIsSlavoGermanic(word)
-	pos := 0
-
-	// Handle initial silent/special pairs.
-	if dmStringAt(padded, 0, "GN", "KN", "PN", "AE", "WR") {
-		pos++
-	}
-
-	// Initial X → S.
-	if padded[0] == 'X' {
-		pri.WriteByte('S')
-		alt.WriteByte('S')
-		pos++
-	}
-
-	for pos < n && pri.Len() < maxLen && alt.Len() < maxLen {
-		ch := padded[pos]
-
-		switch ch {
-		case 'A', 'E', 'I', 'O', 'U':
-			if pos == 0 {
-				pri.WriteByte('A')
-				alt.WriteByte('A')
-			}
-			pos++
-
-		case 'B':
-			pri.WriteByte('P')
-			alt.WriteByte('P')
-			if padded[pos+1] == 'B' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'C':
-			pos = dmHandleC(padded, pos, n, &pri, &alt, slavoGermanic)
-
-		case 'D':
-			pos = dmHandleD(padded, pos, n, &pri, &alt)
-
-		case 'F':
-			pri.WriteByte('F')
-			alt.WriteByte('F')
-			if padded[pos+1] == 'F' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'G':
-			pos = dmHandleG(padded, pos, n, &pri, &alt, slavoGermanic)
-
-		case 'H':
-			// H: encode only if before a vowel and not after a vowel.
-			if dmIsVowel(padded[pos+1]) && (pos == 0 || !dmIsVowel(padded[pos-1])) {
-				pri.WriteByte('H')
-				alt.WriteByte('H')
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'J':
-			pos = dmHandleJ(padded, pos, n, word, &pri, &alt, slavoGermanic)
-
-		case 'K':
-			pri.WriteByte('K')
-			alt.WriteByte('K')
-			if padded[pos+1] == 'K' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'L':
-			pos = dmHandleL(padded, pos, n, &pri, &alt)
-
-		case 'M':
-			pri.WriteByte('M')
-			alt.WriteByte('M')
-			// Handle UMB at end (e.g., DUMB, THUMB).
-			if padded[pos+1] == 'M' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'N':
-			pri.WriteByte('N')
-			alt.WriteByte('N')
-			if padded[pos+1] == 'N' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'P':
-			if padded[pos+1] == 'H' {
-				pri.WriteByte('F')
-				alt.WriteByte('F')
-				pos += 2
-			} else {
-				pri.WriteByte('P')
-				alt.WriteByte('P')
-				if padded[pos+1] == 'P' {
-					pos += 2
-				} else {
-					pos++
-				}
-			}
-
-		case 'Q':
-			pri.WriteByte('K')
-			alt.WriteByte('K')
-			if padded[pos+1] == 'Q' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'R':
-			// French final R: silent in alternate.
-			if pos == n-1 && !slavoGermanic &&
-				pos >= 2 && padded[pos-2] == 'I' && padded[pos-1] == 'E' &&
-				!dmStringAt(padded, pos-4, "ME", "MA") {
-				alt.WriteByte('R')
-			} else {
-				pri.WriteByte('R')
-				alt.WriteByte('R')
-			}
-			if padded[pos+1] == 'R' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'S':
-			pos = dmHandleS(padded, pos, n, &pri, &alt, slavoGermanic)
-
-		case 'T':
-			pos = dmHandleT(padded, pos, n, &pri, &alt)
-
-		case 'V':
-			pri.WriteByte('F')
-			alt.WriteByte('F')
-			if padded[pos+1] == 'V' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'W':
-			pos = dmHandleW(padded, pos, n, &pri, &alt)
-
-		case 'X':
-			// X → KS normally, but not at end for French.
-			if !(pos == n-1 &&
-				(dmStringAt(padded, pos-3, "IAU", "EAU") ||
-					dmStringAt(padded, pos-2, "AU", "OU"))) {
-				pri.WriteString("KS")
-				alt.WriteString("KS")
-			}
-			if padded[pos+1] == 'C' || padded[pos+1] == 'X' {
-				pos += 2
-			} else {
-				pos++
-			}
-
-		case 'Z':
-			pos = dmHandleZ(padded, pos, n, &pri, &alt, slavoGermanic)
-
-		default:
-			pos++
-		}
-	}
-
-	p := pri.String()
-	a := alt.String()
-
-	if len(p) > maxLen {
-		p = p[:maxLen]
-	}
-
-	if len(a) > maxLen {
-		a = a[:maxLen]
-	}
-
-	return p, a
+	return d.pri.String(), d.alt.String()
 }
 
 // Match reports whether two strings share at least one common Double Metaphone
@@ -263,544 +79,535 @@ func (e *DoubleMetaphoneEncoder) Match(a, b string) bool {
 	return p1 == p2 || p1 == a2 || a1 == p2 || a1 == a2
 }
 
-// dmHandleC processes the letter C in Double Metaphone.
-func dmHandleC(w string, pos, n int, pri, alt *strings.Builder, slavo bool) int {
-	// Various Germanic.
-	if pos > 1 && !dmIsVowel(w[pos-2]) &&
-		w[pos-1] == 'A' && w[pos] == 'C' && w[pos+1] == 'H' &&
-		w[pos+2] != 'I' && (w[pos+2] != 'E' || dmStringAt(w, pos-2, "BACHER", "MACHER")) {
-		pri.WriteByte('K')
-		alt.WriteByte('K')
-		return pos + 2
+// dmState holds the word being encoded and both codes built so far.
+type dmState struct {
+	w     string
+	slavo bool
+	max   int
+	pri   strings.Builder
+	alt   strings.Builder
+}
+
+// at returns the byte at i, or 0 when i is out of range.
+func (d *dmState) at(i int) byte {
+	return byteAt(d.w, i)
+}
+
+// has reports whether any of subs occurs at position pos.
+func (d *dmState) has(pos int, subs ...string) bool {
+	return hasAt(d.w, pos, subs...)
+}
+
+// add appends p to the primary code and a to the alternate code, each
+// truncated to the maximum length.
+func (d *dmState) add(p, a string) {
+	writeUpTo(&d.pri, p, d.max)
+	writeUpTo(&d.alt, a, d.max)
+}
+
+// both appends s to both codes.
+func (d *dmState) both(s string) {
+	d.add(s, s)
+}
+
+// writeUpTo writes s to code without exceeding limit bytes.
+func writeUpTo(code *strings.Builder, s string, limit int) {
+	if room := limit - code.Len(); len(s) > room {
+		s = s[:max(room, 0)]
 	}
 
-	// Special initial: CAESAR.
-	if pos == 0 && dmStringAt(w, pos, "CAESAR") {
-		pri.WriteByte('S')
-		alt.WriteByte('S')
-		return pos + 2
+	code.WriteString(s)
+}
+
+// skip returns the next position after i, skipping one repeat of ch.
+func (d *dmState) skip(i int, ch byte) int {
+	if d.at(i+1) == ch {
+		return i + 2
 	}
 
-	// Italian: CHIANTI.
-	if dmStringAt(w, pos, "CHIA") {
-		pri.WriteByte('K')
-		alt.WriteByte('K')
-		return pos + 2
+	return i + 1
+}
+
+func (d *dmState) encode() {
+	i := 0
+	if d.has(0, "GN", "KN", "PN", "WR", "PS") {
+		i = 1
 	}
 
-	// CH
-	if w[pos+1] == 'H' {
-		// Greek: CHORUS, CHEMISTRY, etc.
-		if pos > 0 && dmStringAt(w, pos, "CHAE") {
-			pri.WriteByte('K')
-			alt.WriteByte('X')
-			return pos + 2
-		}
-
-		// Greek roots: CHARAC, CHARIS, CHOR, CHEM, CHYM.
-		if pos == 0 &&
-			(dmStringAt(w, pos+1, "HARAC", "HARIS") ||
-				dmStringAt(w, pos+1, "HOR", "HYM", "HIA", "HEM")) &&
-			!dmStringAt(w, 0, "CHORE") {
-			pri.WriteByte('K')
-			alt.WriteByte('K')
-			return pos + 2
-		}
-
-		// Germanic/Greek: handle CH.
-		if dmStringAt(w, 0, "VAN ", "VON ") ||
-			dmStringAt(w, 0, "SCH") ||
-			dmStringAt(w, pos-2, "ORCHES", "ARCHIT", "ORCHID") ||
-			dmStringAt(w, pos+2, "T", "S") ||
-			((pos == 0 || dmStringAt(w, pos-1, "A", "O", "U", "E")) &&
-				dmStringAt(w, pos+2, "L", "R", "N", "M", "B", "H", "F", "V", "W", " ")) {
-			pri.WriteByte('K')
-			alt.WriteByte('K')
-		} else if pos > 0 {
-			if dmStringAt(w, 0, "MC") {
-				// McHugh.
-				pri.WriteByte('K')
-				alt.WriteByte('K')
-			} else {
-				pri.WriteByte('X')
-				alt.WriteByte('K')
+	for i < len(d.w) && (d.pri.Len() < d.max || d.alt.Len() < d.max) {
+		switch d.w[i] {
+		case 'A', 'E', 'I', 'O', 'U', 'Y':
+			if i == 0 {
+				d.both("A")
 			}
-		} else {
-			pri.WriteByte('X')
-			alt.WriteByte('X')
-		}
-
-		return pos + 2
-	}
-
-	// CZ (Polish) but not WICZ.
-	if dmStringAt(w, pos, "CZ") && !dmStringAt(w, pos-2, "WICZ") {
-		pri.WriteByte('S')
-		alt.WriteByte('X')
-		return pos + 2
-	}
-
-	// CIA: Italian.
-	if dmStringAt(w, pos+1, "IA") {
-		pri.WriteByte('X')
-		alt.WriteByte('X')
-		return pos + 3
-	}
-
-	// CC but not McClellan.
-	if w[pos+1] == 'C' && !(pos == 1 && w[0] == 'M') {
-		// Bellocchio, Bacchus.
-		if (w[pos+2] == 'I' || w[pos+2] == 'E' || w[pos+2] == 'H') &&
-			!dmStringAt(w, pos+2, "HU") {
-			// ACCIO, UCCEE, etc.
-			if (pos == 1 && w[0] == 'A') || dmStringAt(w, pos-1, "UCCEE", "UCCES") {
-				pri.WriteString("KS")
-				alt.WriteString("KS")
+			i++
+		case 'B':
+			d.both("P")
+			i = d.skip(i, 'B')
+		case 'C':
+			i = d.c(i)
+		case 'D':
+			i = d.d(i)
+		case 'F':
+			d.both("F")
+			i = d.skip(i, 'F')
+		case 'G':
+			i = d.g(i)
+		case 'H':
+			i = d.h(i)
+		case 'J':
+			i = d.j(i)
+		case 'K':
+			d.both("K")
+			i = d.skip(i, 'K')
+		case 'L':
+			i = d.l(i)
+		case 'M':
+			d.both("M")
+			if d.at(i+1) == 'M' || (d.has(i-1, "UMB") && (i+1 == len(d.w)-1 || d.has(i+2, "ER"))) {
+				i += 2 // "dumb", "thumb"
 			} else {
-				pri.WriteByte('X')
-				alt.WriteByte('X')
+				i++
 			}
-			return pos + 3
-		}
-		// CC → K (e.g., JACK).
-		pri.WriteByte('K')
-		alt.WriteByte('K')
-		return pos + 2
-	}
-
-	if dmStringAt(w, pos, "CK", "CG", "CQ") {
-		pri.WriteByte('K')
-		alt.WriteByte('K')
-		return pos + 2
-	}
-
-	if dmStringAt(w, pos, "CI", "CE", "CY") {
-		// Italian vs. rest.
-		if dmStringAt(w, pos, "CIO", "CIE", "CIA") {
-			pri.WriteByte('S')
-			alt.WriteByte('X')
-		} else {
-			pri.WriteByte('S')
-			alt.WriteByte('S')
-		}
-		return pos + 2
-	}
-
-	// Default.
-	pri.WriteByte('K')
-	alt.WriteByte('K')
-
-	// Handle CL, CR, etc. vs CC.
-	if dmStringAt(w, pos+1, " C", " Q", " G") {
-		return pos + 3
-	}
-
-	if w[pos+1] == 'C' || w[pos+1] == 'K' || w[pos+1] == 'Q' {
-		if !dmStringAt(w, pos+1, "CE", "CI") {
-			return pos + 2
+		case 'N':
+			d.both("N")
+			i = d.skip(i, 'N')
+		case 'P':
+			i = d.p(i)
+		case 'Q':
+			d.both("K")
+			i = d.skip(i, 'Q')
+		case 'R':
+			i = d.r(i)
+		case 'S':
+			i = d.s(i)
+		case 'T':
+			i = d.t(i)
+		case 'V':
+			d.both("F")
+			i = d.skip(i, 'V')
+		case 'W':
+			i = d.wch(i)
+		case 'X':
+			i = d.x(i)
+		case 'Z':
+			i = d.z(i)
+		default:
+			i++
 		}
 	}
-
-	return pos + 1
 }
 
-// dmHandleD processes the letter D in Double Metaphone.
-func dmHandleD(w string, pos, _ int, pri, alt *strings.Builder) int {
-	if w[pos+1] == 'G' {
-		if w[pos+2] == 'I' || w[pos+2] == 'E' || w[pos+2] == 'Y' {
-			// DGI, DGE, DGY → J.
-			pri.WriteByte('J')
-			alt.WriteByte('J')
-			return pos + 3
-		}
-		// DG → TK.
-		pri.WriteString("TK")
-		alt.WriteString("TK")
-		return pos + 2
-	}
-
-	if w[pos+1] == 'T' || w[pos+1] == 'D' {
-		pri.WriteByte('T')
-		alt.WriteByte('T')
-		return pos + 2
-	}
-
-	pri.WriteByte('T')
-	alt.WriteByte('T')
-
-	return pos + 1
-}
-
-// dmHandleG processes the letter G in Double Metaphone.
-func dmHandleG(w string, pos, n int, pri, alt *strings.Builder, slavo bool) int {
-	if w[pos+1] == 'H' {
-		return dmHandleGH(w, pos, n, pri, alt)
-	}
-
-	if w[pos+1] == 'N' {
-		if pos == 1 && dmIsVowel(w[0]) && !slavo {
-			pri.WriteString("KN")
-			alt.WriteString("N")
-		} else if !dmStringAt(w, pos+2, "EY") && w[pos+1] != 'Y' && !slavo {
-			pri.WriteString("N")
-			alt.WriteString("KN")
-		} else {
-			pri.WriteString("KN")
-			alt.WriteString("KN")
-		}
-		return pos + 2
-	}
-
-	// Italian: GLIA.
-	if dmStringAt(w, pos+1, "LI") && !slavo {
-		pri.WriteString("KL")
-		alt.WriteString("L")
-		return pos + 2
-	}
-
-	// Initial GY, GE, GI, GEI, GER, GES.
-	if pos == 0 {
-		if w[pos+1] == 'Y' {
-			pri.WriteByte('K')
-			alt.WriteByte('J')
-			return pos + 2
-		}
-
-		if w[pos+1] == 'E' || w[pos+1] == 'I' {
-			pri.WriteByte('K')
-			alt.WriteByte('J')
-			return pos + 2
-		}
-	}
-
-	// Parker's rule for -GER, -GEL at end.
-	if (dmStringAt(w, pos+1, "ER") || w[pos+1] == 'Y') &&
-		!dmStringAt(w, 0, "DANGER", "RANGER", "MANGER") &&
-		!dmStringAt(w, pos-1, "E", "I") &&
-		!dmStringAt(w, pos-1, "RGY", "OGY") {
-		pri.WriteByte('K')
-		alt.WriteByte('J')
-		return pos + 2
-	}
-
-	// Italian.
-	if w[pos+1] == 'E' || w[pos+1] == 'I' || w[pos+1] == 'Y' ||
-		dmStringAt(w, pos-1, "AGGI", "OGGI") {
-		// Germanic.
-		if dmStringAt(w, 0, "VAN ", "VON ") ||
-			dmStringAt(w, 0, "SCH") ||
-			dmStringAt(w, pos+1, "ET") {
-			pri.WriteByte('K')
-			alt.WriteByte('K')
-		} else if dmStringAt(w, pos+1, "IER") {
-			pri.WriteByte('J')
-			alt.WriteByte('J')
-		} else {
-			pri.WriteByte('J')
-			alt.WriteByte('K')
-		}
-		return pos + 2
-	}
-
-	if w[pos+1] == 'G' {
-		pos += 2
-	} else {
-		pos++
-	}
-
-	pri.WriteByte('K')
-	alt.WriteByte('K')
-
-	return pos
-}
-
-// dmHandleGH processes GH combinations in Double Metaphone.
-func dmHandleGH(w string, pos, n int, pri, alt *strings.Builder) int {
-	if pos > 0 && !dmIsVowel(w[pos-1]) {
-		pri.WriteByte('K')
-		alt.WriteByte('K')
-		return pos + 2
-	}
-
-	// GH at beginning.
-	if pos == 0 {
-		if w[pos+2] == 'I' {
-			pri.WriteByte('J')
-			alt.WriteByte('J')
-		} else {
-			pri.WriteByte('K')
-			alt.WriteByte('K')
-		}
-		return pos + 2
-	}
-
-	// Parker's rule: GH after a back vowel (except B).
-	if (pos > 1 && dmStringAt(w, pos-2, "B", "H", "D")) ||
-		(pos > 2 && dmStringAt(w, pos-3, "B", "H", "D")) ||
-		(pos > 3 && dmStringAt(w, pos-4, "B", "H")) {
-		return pos + 2
-	}
-
-	// Italian/Germanic: GH not silent after another pattern.
-	if pos > 2 && w[pos-1] == 'U' &&
-		dmStringAt(w, pos-3, "C", "G", "L", "R", "T") {
-		pri.WriteByte('F')
-		alt.WriteByte('F')
-	} else if pos > 0 && w[pos-1] != 'I' {
-		pri.WriteByte('K')
-		alt.WriteByte('K')
-	}
-
-	return pos + 2
-}
-
-// dmHandleJ processes the letter J in Double Metaphone.
-func dmHandleJ(w string, pos, n int, word string, pri, alt *strings.Builder, slavo bool) int {
-	// Spanish: SAN JOSE.
-	if dmStringAt(w, pos, "JOSE") || dmStringAt(w, 0, "SAN ") {
-		if (pos == 0 && w[pos+4] == ' ') || dmStringAt(w, 0, "SAN ") {
-			pri.WriteByte('H')
-			alt.WriteByte('H')
-		} else {
-			pri.WriteByte('J')
-			alt.WriteByte('H')
-		}
-		return pos + 1
-	}
-
-	if pos == 0 {
-		// YAN → J.
-		pri.WriteByte('J')
-		alt.WriteByte('A')
-	} else if dmIsVowel(w[pos-1]) && !slavo && (w[pos+1] == 'A' || w[pos+1] == 'O') {
-		pri.WriteByte('J')
-		alt.WriteByte('H')
-	} else if pos == n-1 {
-		pri.WriteByte('J')
-		alt.WriteByte(' ')
-	} else if !dmStringAt(w, pos+1, "L", "T", "K", "S", "N", "M", "B", "Z") &&
-		!dmStringAt(w, pos-1, "S", "K", "L") {
-		pri.WriteByte('J')
-		alt.WriteByte('J')
-	}
-
-	if w[pos+1] == 'J' {
-		return pos + 2
-	}
-
-	return pos + 1
-}
-
-// dmHandleL processes the letter L in Double Metaphone.
-func dmHandleL(w string, pos, n int, pri, alt *strings.Builder) int {
-	if w[pos+1] == 'L' {
-		// Spanish: CABRILLO, GALLEGOS.
-		if (pos == n-3 && dmStringAt(w, pos-1, "ILLO", "ILLA", "ALLE")) ||
-			((dmStringAt(w, n-2, "AS", "OS") || dmStringAt(w, n-1, "A", "O")) &&
-				dmStringAt(w, pos-1, "ALLE")) {
-			pri.WriteByte('L')
-			alt.WriteByte(' ')
-			return pos + 2
-		}
-		pos += 2
-	} else {
-		pos++
-	}
-
-	pri.WriteByte('L')
-	alt.WriteByte('L')
-
-	return pos
-}
-
-// dmHandleS processes the letter S in Double Metaphone.
-func dmHandleS(w string, pos, n int, pri, alt *strings.Builder, slavo bool) int {
-	// Special: ISLAND, ISLE, CARLISLE, CARLYSLE.
-	if dmStringAt(w, pos-1, "ISL", "YSL") {
-		return pos + 1
-	}
-
-	// Special: SUGAR.
-	if pos == 0 && dmStringAt(w, pos, "SUGAR") {
-		pri.WriteByte('X')
-		alt.WriteByte('S')
-		return pos + 1
-	}
-
-	if dmStringAt(w, pos, "SH") {
-		// Germanic: SH → X in most cases.
-		if dmStringAt(w, pos+1, "HEIM", "HOEK", "HOLM", "HOLZ") {
-			pri.WriteByte('S')
-			alt.WriteByte('S')
-		} else {
-			pri.WriteByte('X')
-			alt.WriteByte('X')
-		}
-		return pos + 2
-	}
-
-	// Italian and Armenian: SIO, SIA → S/X.
-	if dmStringAt(w, pos, "SIO", "SIA") || dmStringAt(w, pos, "SIAN") {
-		if !slavo {
-			pri.WriteByte('S')
-			alt.WriteByte('X')
-		} else {
-			pri.WriteByte('S')
-			alt.WriteByte('S')
-		}
-		return pos + 3
-	}
-
-	// German & English: initial SC+E,I → S, SC+H → SK.
-	if pos == 0 && dmStringAt(w, pos+1, "M", "N", "L", "W") {
-		pri.WriteByte('S')
-		alt.WriteByte('X')
-		return pos + 1
-	}
-
-	if dmStringAt(w, pos, "SCH") {
-		// Schoenberg.
-		if dmStringAt(w, pos+3, "OO", "ER", "EN", "UY", "ED", "EM") {
-			// Dutch: SCHOOL, SCHOONER.
-			if dmStringAt(w, pos+3, "ER", "EN") {
-				pri.WriteString("X")
-				alt.WriteString("SK")
+func (d *dmState) c(i int) int {
+	switch {
+	case d.isGermanicCH(i):
+		d.both("K")
+		return i + 2
+	case i == 0 && d.has(i, "CAESAR"):
+		d.both("S")
+		return i + 2
+	case d.has(i, "CH"):
+		return d.ch(i)
+	case d.has(i, "CZ") && !d.has(i-2, "WICZ"):
+		d.add("S", "X") // "Czerny"
+		return i + 2
+	case d.has(i+1, "CIA"):
+		d.both("X") // "focaccia"
+		return i + 3
+	case d.has(i, "CC") && (i != 1 || d.at(0) != 'M'):
+		// Double C, but not "McClellan".
+		if d.has(i+2, "I", "E", "H") && !d.has(i+2, "HU") {
+			// "bellocchio" but not "bacchus".
+			if (i == 1 && d.at(0) == 'A') || d.has(i-1, "UCCEE", "UCCES") {
+				d.both("KS") // "accident", "accede", "succeed"
 			} else {
-				pri.WriteString("SK")
-				alt.WriteString("SK")
+				d.both("X") // "bacci", "bertucci"
 			}
-			return pos + 3
+			return i + 3
 		}
-
-		if pos == 0 && !dmIsVowel(w[3]) && w[3] != 'W' {
-			pri.WriteByte('X')
-			alt.WriteByte('S')
+		d.both("K") // Pierce's rule
+		return i + 2
+	case d.has(i, "CK", "CG", "CQ"):
+		d.both("K")
+		return i + 2
+	case d.has(i, "CI", "CE", "CY"):
+		if d.has(i, "CIO", "CIE", "CIA") {
+			d.add("S", "X") // Italian
 		} else {
-			pri.WriteByte('X')
-			alt.WriteByte('X')
+			d.both("S")
 		}
-		return pos + 3
+		return i + 2
 	}
 
-	if dmStringAt(w, pos, "SC") {
-		if w[pos+2] == 'I' || w[pos+2] == 'E' || w[pos+2] == 'Y' {
-			pri.WriteByte('S')
-			alt.WriteByte('S')
+	d.both("K")
+
+	switch {
+	case d.has(i+1, " C", " Q", " G"):
+		return i + 3 // "Mac Caffrey", "Mac Gregor"
+	case d.has(i+1, "C", "K", "Q") && !d.has(i+1, "CE", "CI"):
+		return i + 2
+	}
+
+	return i + 1
+}
+
+// isGermanicCH reports the Italian "chianti" and the Germanic -ACH- cases,
+// where CH sounds like K.
+func (d *dmState) isGermanicCH(i int) bool {
+	if d.has(i, "CHIA") {
+		return true
+	}
+
+	if i <= 1 || dmIsVowel(d.at(i-2)) || !d.has(i-1, "ACH") {
+		return false
+	}
+
+	c := d.at(i + 2)
+
+	return (c != 'I' && c != 'E') || d.has(i-2, "BACHER", "MACHER")
+}
+
+func (d *dmState) ch(i int) int {
+	switch {
+	case i > 0 && d.has(i, "CHAE"):
+		d.add("K", "X") // "Michael"
+	case i == 0 && (d.has(i+1, "HARAC", "HARIS") || d.has(i+1, "HOR", "HYM", "HIA", "HEM")) &&
+		!d.has(0, "CHORE"):
+		d.both("K") // Greek roots: "chemistry", "chorus"
+	case d.has(0, "VAN ", "VON ", "SCH") ||
+		d.has(i-2, "ORCHES", "ARCHIT", "ORCHID") ||
+		d.has(i+2, "T", "S") ||
+		((i == 0 || d.has(i-1, "A", "O", "U", "E")) &&
+			(d.has(i+2, "L", "R", "N", "M", "B", "H", "F", "V", "W", " ") || i+1 == len(d.w)-1)):
+		d.both("K") // Germanic, Greek, or otherwise CH for the KH sound
+	case i > 0 && d.has(0, "MC"):
+		d.both("K") // "McHugh"
+	case i > 0:
+		d.add("X", "K")
+	default:
+		d.both("X")
+	}
+
+	return i + 2
+}
+
+func (d *dmState) d(i int) int {
+	switch {
+	case d.has(i, "DG"):
+		if d.has(i+2, "I", "E", "Y") {
+			d.both("J") // "edge"
+			return i + 3
+		}
+		d.both("TK") // "Edgar"
+		return i + 2
+	case d.has(i, "DT", "DD"):
+		d.both("T")
+		return i + 2
+	}
+
+	d.both("T")
+
+	return i + 1
+}
+
+func (d *dmState) g(i int) int {
+	next := d.at(i + 1)
+
+	switch {
+	case next == 'H':
+		return d.gh(i)
+	case next == 'N':
+		switch {
+		case i == 1 && dmIsVowel(d.at(0)) && !d.slavo:
+			d.add("KN", "N")
+		case !d.has(i+2, "EY") && !d.slavo:
+			d.add("N", "KN")
+		default:
+			d.both("KN")
+		}
+		return i + 2
+	case d.has(i+1, "LI") && !d.slavo:
+		d.add("KL", "L") // "tagliaro"
+		return i + 2
+	case i == 0 && (next == 'Y' || d.has(i+1, "ES", "EP", "EB", "EL", "EY", "IB", "IL", "IN", "IE", "EI", "ER")):
+		d.add("K", "J") // -ges-, -gep-, -gel-, -gie- at the beginning
+		return i + 2
+	case (d.has(i+1, "ER") || next == 'Y') &&
+		!d.has(0, "DANGER", "RANGER", "MANGER") &&
+		!d.has(i-1, "E", "I") &&
+		!d.has(i-1, "RGY", "OGY"):
+		d.add("K", "J") // -ger-, -gy-
+		return i + 2
+	case d.has(i+1, "E", "I", "Y") || d.has(i-1, "AGGI", "OGGI"):
+		switch {
+		case d.has(0, "VAN ", "VON ", "SCH") || d.has(i+1, "ET"):
+			d.both("K") // obviously Germanic
+		case d.has(i+1, "IER"):
+			d.both("J")
+		default:
+			d.add("J", "K") // Italian "biaggi"
+		}
+		return i + 2
+	}
+
+	d.both("K")
+
+	return d.skip(i, 'G')
+}
+
+func (d *dmState) gh(i int) int {
+	switch {
+	case i > 0 && !dmIsVowel(d.at(i-1)):
+		d.both("K")
+	case i == 0:
+		if d.at(i+2) == 'I' {
+			d.both("J") // "ghislane"
 		} else {
-			pri.WriteString("SK")
-			alt.WriteString("SK")
+			d.both("K") // "ghost"
 		}
-		return pos + 3
+	case (i > 1 && d.has(i-2, "B", "H", "D")) ||
+		(i > 2 && d.has(i-3, "B", "H", "D")) ||
+		(i > 3 && d.has(i-4, "B", "H")):
+		// Parker's rule: silent in "hugh", "bough", "broughton".
+	case i > 2 && d.at(i-1) == 'U' && d.has(i-3, "C", "G", "L", "R", "T"):
+		d.both("F") // "laugh", "McLaughlin", "cough", "rough", "tough"
+	case d.at(i-1) != 'I':
+		d.both("K")
 	}
 
-	// French: final S silent.
-	if pos == n-1 && dmStringAt(w, pos-2, "AI", "OI") {
-		alt.WriteByte('S')
-	} else {
-		pri.WriteByte('S')
-		alt.WriteByte('S')
-	}
-
-	if w[pos+1] == 'S' || w[pos+1] == 'Z' {
-		return pos + 2
-	}
-
-	return pos + 1
+	return i + 2
 }
 
-// dmHandleT processes the letter T in Double Metaphone.
-func dmHandleT(w string, pos, n int, pri, alt *strings.Builder) int {
-	if dmStringAt(w, pos, "TION") || dmStringAt(w, pos, "TIA", "TCH") {
-		pri.WriteByte('X')
-		alt.WriteByte('X')
-		return pos + 3
+func (d *dmState) h(i int) int {
+	// Only kept as the first letter or between two vowels.
+	if (i == 0 || dmIsVowel(d.at(i-1))) && dmIsVowel(d.at(i+1)) {
+		d.both("H")
+		return i + 2 // also skips HH
 	}
 
-	if dmStringAt(w, pos, "TH") || dmStringAt(w, pos, "TTH") {
-		// Greek origin.
-		if dmStringAt(w, pos+2, "OM", "AM") || dmStringAt(w, 0, "VAN ", "VON ") || dmStringAt(w, 0, "SCH") {
-			pri.WriteByte('T')
-			alt.WriteByte('T')
+	return i + 1
+}
+
+func (d *dmState) j(i int) int {
+	if d.has(i, "JOSE") || d.has(0, "SAN ") {
+		// Obviously Spanish: "Jose", "San Jacinto".
+		if (i == 0 && d.at(i+4) == ' ') || len(d.w) == 4 || d.has(0, "SAN ") {
+			d.both("H")
 		} else {
-			pri.WriteByte('0')
-			alt.WriteByte('T')
+			d.add("J", "H")
 		}
-		return pos + 2
+		return i + 1
 	}
 
-	if w[pos+1] == 'T' || w[pos+1] == 'D' {
-		pos += 2
-	} else {
-		pos++
+	switch {
+	case i == 0:
+		d.add("J", "A") // "Yankelovich" / "Jankelowicz"
+	case dmIsVowel(d.at(i-1)) && !d.slavo && (d.at(i+1) == 'A' || d.at(i+1) == 'O'):
+		d.add("J", "H") // Spanish pronunciation of "bajador"
+	case i == len(d.w)-1:
+		d.add("J", "")
+	case !d.has(i+1, "L", "T", "K", "S", "N", "M", "B", "Z") && !d.has(i-1, "S", "K", "L"):
+		d.both("J")
 	}
 
-	pri.WriteByte('T')
-	alt.WriteByte('T')
-
-	return pos
+	return d.skip(i, 'J')
 }
 
-// dmHandleW processes the letter W in Double Metaphone.
-func dmHandleW(w string, pos, n int, pri, alt *strings.Builder) int {
-	// WR → R.
-	if w[pos+1] == 'R' {
-		pri.WriteByte('R')
-		alt.WriteByte('R')
-		return pos + 2
+func (d *dmState) l(i int) int {
+	if d.at(i+1) != 'L' {
+		d.both("L")
+		return i + 1
 	}
 
-	if pos == 0 {
-		if dmIsVowel(w[pos+1]) {
-			// WH → A in alternate.
-			pri.WriteByte('A')
-			alt.WriteByte('F')
-		} else if w[pos+1] == 'H' {
-			// WH → A.
-			pri.WriteByte('A')
-			alt.WriteByte('A')
+	n := len(d.w)
+	if (i == n-3 && d.has(i-1, "ILLO", "ILLA", "ALLE")) ||
+		((d.has(n-2, "AS", "OS") || d.has(n-1, "A", "O")) && d.has(i-1, "ALLE")) {
+		d.add("L", "") // Spanish: "cabrillo", "gallegos"
+	} else {
+		d.both("L")
+	}
+
+	return i + 2
+}
+
+func (d *dmState) p(i int) int {
+	if d.at(i+1) == 'H' {
+		d.both("F")
+		return i + 2
+	}
+
+	d.both("P")
+
+	if d.has(i+1, "P", "B") {
+		return i + 2 // "campbell"
+	}
+
+	return i + 1
+}
+
+func (d *dmState) r(i int) int {
+	// French final R, silent in the primary code: "Rogier".
+	if i == len(d.w)-1 && !d.slavo && d.has(i-2, "IE") && !d.has(i-4, "ME", "MA") {
+		d.add("", "R")
+	} else {
+		d.both("R")
+	}
+
+	return d.skip(i, 'R')
+}
+
+func (d *dmState) s(i int) int {
+	switch {
+	case d.has(i-1, "ISL", "YSL"):
+		return i + 1 // "island", "isle", "carlisle", "carlysle"
+	case i == 0 && d.has(i, "SUGAR"):
+		d.add("X", "S")
+		return i + 1
+	case d.has(i, "SH"):
+		if d.has(i+1, "HEIM", "HOEK", "HOLM", "HOLZ") {
+			d.both("S") // Germanic
+		} else {
+			d.both("X")
 		}
+		return i + 2
+	case d.has(i, "SIO", "SIA", "SIAN"):
+		// Italian and Armenian.
+		if d.slavo {
+			d.both("S")
+		} else {
+			d.add("S", "X")
+		}
+		return i + 3
+	case (i == 0 && d.has(i+1, "M", "N", "L", "W")) || d.has(i+1, "Z"):
+		// German and anglicisations ("Smith" matches "Schmidt", "Snider"
+		// matches "Schneider"); -SZ- in Slavic languages.
+		d.add("S", "X")
+		return d.skip(i, 'Z')
+	case d.has(i, "SC"):
+		return d.sc(i)
 	}
 
-	// WICZ, WITZ: Polish.
-	if (pos == n-1 && dmIsVowel(w[pos-1])) ||
-		dmStringAt(w, pos, "WICZ", "WITZ") ||
-		dmStringAt(w, pos-1, "EWSKI", "EWSKY", "OWSKI", "OWSKY") {
-		pri.WriteByte(' ')
-		alt.WriteString("F")
-		return pos + 1
-	}
-
-	return pos + 1
-}
-
-// dmHandleZ processes the letter Z in Double Metaphone.
-func dmHandleZ(w string, pos, n int, pri, alt *strings.Builder, slavo bool) int {
-	if w[pos+1] == 'H' {
-		// Chinese: ZH → J.
-		pri.WriteByte('J')
-		alt.WriteByte('J')
-		return pos + 2
-	}
-
-	if dmStringAt(w, pos+1, "ZO", "ZI", "ZA") || (slavo && pos > 0 && w[pos-1] != 'T') {
-		pri.WriteByte('S')
-		alt.WriteString("TS")
+	if i == len(d.w)-1 && d.has(i-2, "AI", "OI") {
+		d.add("", "S") // French: "Resnais", "Artois"
 	} else {
-		pri.WriteByte('S')
-		alt.WriteByte('S')
+		d.both("S")
 	}
 
-	if w[pos+1] == 'Z' {
-		return pos + 2
+	if d.has(i+1, "S", "Z") {
+		return i + 2
 	}
 
-	return pos + 1
+	return i + 1
 }
 
-// dmIsVowel reports whether ch is an ASCII vowel.
+func (d *dmState) sc(i int) int {
+	switch {
+	case d.at(i+2) == 'H':
+		// Schlesinger's rule.
+		switch {
+		case d.has(i+3, "ER", "EN"):
+			d.add("X", "SK") // "schermerhorn", "schenker"
+		case d.has(i+3, "OO", "UY", "ED", "EM"):
+			d.both("SK") // Dutch: "school", "schooner"
+		case i == 0 && !dmIsVowel(d.at(3)) && d.at(3) != 'W':
+			d.add("X", "S")
+		default:
+			d.both("X")
+		}
+	case d.has(i+2, "I", "E", "Y"):
+		d.both("S")
+	default:
+		d.both("SK")
+	}
+
+	return i + 3
+}
+
+func (d *dmState) t(i int) int {
+	switch {
+	case d.has(i, "TION", "TIA", "TCH"):
+		d.both("X")
+		return i + 3
+	case d.has(i, "TH", "TTH"):
+		if d.has(i+2, "OM", "AM") || d.has(0, "VAN ", "VON ", "SCH") {
+			d.both("T") // "thomas", "thames", or Germanic
+		} else {
+			d.add("0", "T")
+		}
+		return i + 2
+	}
+
+	d.both("T")
+
+	if d.has(i+1, "T", "D") {
+		return i + 2
+	}
+
+	return i + 1
+}
+
+// wch handles W; the name w is taken by the word field.
+func (d *dmState) wch(i int) int {
+	if d.has(i, "WR") {
+		d.both("R") // can also be in the middle of a word
+		return i + 2
+	}
+
+	switch {
+	case i == 0 && dmIsVowel(d.at(i+1)):
+		d.add("A", "F") // "Wasserman" matches "Vasserman"
+	case i == 0 && d.at(i+1) == 'H':
+		d.both("A") // "Uomo" matches "Womo"
+	case (i == len(d.w)-1 && dmIsVowel(d.at(i-1))) ||
+		d.has(i-1, "EWSKI", "EWSKY", "OWSKI", "OWSKY") ||
+		d.has(0, "SCH"):
+		d.add("", "F") // "Arnow" matches "Arnoff"
+	case d.has(i, "WICZ", "WITZ"):
+		d.add("TS", "FX") // Polish: "Filipowicz"
+		return i + 4
+	}
+
+	return i + 1
+}
+
+func (d *dmState) x(i int) int {
+	if i == 0 {
+		d.both("S")
+		return i + 1
+	}
+
+	// Silent in French final -IAUX, -EAUX, -AUX, -OUX: "Breaux".
+	frenchFinal := i == len(d.w)-1 && (d.has(i-3, "IAU", "EAU") || d.has(i-2, "AU", "OU"))
+	if !frenchFinal {
+		d.both("KS")
+	}
+
+	if d.has(i+1, "C", "X") {
+		return i + 2
+	}
+
+	return i + 1
+}
+
+func (d *dmState) z(i int) int {
+	if d.at(i+1) == 'H' {
+		d.both("J") // Chinese pinyin: "Zhao"
+		return i + 2
+	}
+
+	if d.has(i+1, "ZO", "ZI", "ZA") || (d.slavo && i > 0 && d.at(i-1) != 'T') {
+		d.add("S", "TS")
+	} else {
+		d.both("S")
+	}
+
+	return d.skip(i, 'Z')
+}
+
+// dmIsVowel reports whether ch is a vowel for Double Metaphone, which counts Y.
 func dmIsVowel(ch byte) bool {
 	switch ch {
-	case 'A', 'E', 'I', 'O', 'U':
+	case 'A', 'E', 'I', 'O', 'U', 'Y':
 		return true
 	}
 
@@ -809,22 +616,8 @@ func dmIsVowel(ch byte) bool {
 
 // dmIsSlavoGermanic reports whether the word has Slavo-Germanic characteristics.
 func dmIsSlavoGermanic(s string) bool {
-	return strings.Contains(s, "W") ||
-		strings.Contains(s, "K") ||
-		strings.Contains(s, "CZ") ||
-		strings.Contains(s, "WITZ")
-}
-
-// dmStringAt reports whether any of the given substrings appear at position pos
-// in the string s.
-func dmStringAt(s string, pos int, subs ...string) bool {
-	if pos < 0 {
-		return false
-	}
-
-	for _, sub := range subs {
-		end := pos + len(sub)
-		if end <= len(s) && s[pos:end] == sub {
+	for i := 0; i < len(s); i++ {
+		if s[i] == 'W' || s[i] == 'K' || (s[i] == 'C' && byteAt(s, i+1) == 'Z') {
 			return true
 		}
 	}
