@@ -126,3 +126,28 @@ func BenchmarkLevenshteinSimilarity(b *testing.B) {
 		m.Similarity(a, s)
 	}
 }
+
+func TestLevenshteinMetric_ZeroValueAndNegativeCosts(t *testing.T) {
+	unit := NewLevenshtein()
+
+	for _, m := range []*LevenshteinMetric{
+		{},
+		{ASCIIOnly: true},
+		{InsertCost: -1, DeleteCost: -2, ReplaceCost: -3},
+	} {
+		for _, p := range [][2]string{{"kitten", "sitting"}, {"", "abc"}, {"same", "same"}} {
+			if got, want := m.Distance(p[0], p[1]), unit.Distance(p[0], p[1]); got != want {
+				t.Errorf("%+v.Distance(%q, %q) = %d, want %d", *m, p[0], p[1], got, want)
+			}
+			if got, want := m.Similarity(p[0], p[1]), unit.Similarity(p[0], p[1]); got != want {
+				t.Errorf("%+v.Similarity(%q, %q) = %f, want %f", *m, p[0], p[1], got, want)
+			}
+		}
+	}
+
+	// A negative cost counts as 0 when another cost is positive.
+	free := &LevenshteinMetric{InsertCost: -5, DeleteCost: 1, ReplaceCost: 1}
+	if got := free.Distance("abc", "abcdef"); got != 0 {
+		t.Errorf("Distance with free inserts = %d, want 0", got)
+	}
+}
