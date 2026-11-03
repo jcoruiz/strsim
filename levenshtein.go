@@ -5,16 +5,17 @@ package strsim
 // deletions, and substitutions needed to transform one string into the other.
 //
 // The metric supports configurable operation costs via InsertCost, DeleteCost,
-// and ReplaceCost fields.
+// and ReplaceCost fields. The zero value uses unit costs, like NewLevenshtein.
 //
 // Set ASCIIOnly to true for faster processing of pure-ASCII strings. This skips
 // the rune conversion but produces incorrect results for multi-byte UTF-8 input.
 type LevenshteinMetric struct {
-	// InsertCost is the cost of inserting a character. Default: 1.
+	// InsertCost is the cost of inserting a character. Negative costs count
+	// as 0; when all three costs are 0, each operation costs 1.
 	InsertCost int
-	// DeleteCost is the cost of deleting a character. Default: 1.
+	// DeleteCost is the cost of deleting a character.
 	DeleteCost int
-	// ReplaceCost is the cost of replacing a character. Default: 1.
+	// ReplaceCost is the cost of replacing a character.
 	ReplaceCost int
 	// ASCIIOnly skips rune conversion for faster ASCII processing.
 	// Produces incorrect results for multi-byte UTF-8 input.
@@ -46,8 +47,10 @@ func LevenshteinSimilarity(a, b string) float64 {
 // Distance returns the Levenshtein distance between a and b using the
 // configured operation costs. It uses O(min(m, n)) space.
 func (m *LevenshteinMetric) Distance(a, b string) int {
+	insCost, delCost, repCost := m.costs()
+
 	if m.ASCIIOnly {
-		return levenshteinASCII(a, b, m.InsertCost, m.DeleteCost, m.ReplaceCost)
+		return levenshteinASCII(a, b, insCost, delCost, repCost)
 	}
 
 	ra := []rune(a)
@@ -56,12 +59,8 @@ func (m *LevenshteinMetric) Distance(a, b string) int {
 	lenA := len(ra)
 	lenB := len(rb)
 
-	// When costs are symmetric we can swap for space optimization.
-	// When costs differ, insert/delete semantics depend on direction, so we
-	// must track the effective costs after a potential swap.
-	insCost := m.InsertCost
-	delCost := m.DeleteCost
-
+	// Keep the shorter string in the inner loop. Turning a into b by
+	// inserting is turning b into a by deleting, so swap those costs too.
 	if lenA < lenB {
 		ra, rb = rb, ra
 		lenA, lenB = lenB, lenA
@@ -85,7 +84,7 @@ func (m *LevenshteinMetric) Distance(a, b string) int {
 		curr[0] = i * delCost
 
 		for j := 1; j <= lenB; j++ {
-			cost := m.ReplaceCost
+			cost := repCost
 			if ra[i-1] == rb[j-1] {
 				cost = 0
 			}
@@ -104,9 +103,9 @@ func (m *LevenshteinMetric) Distance(a, b string) int {
 }
 
 // Similarity returns the normalized similarity between a and b as a value
-// in [0, 1]. It normalizes by dividing the distance by the maximum possible
-// distance (max rune length * max operation cost). Returns 1.0 when both
-// strings are empty.
+// in [0, 1]. It divides the distance by an upper bound of it, the longer
+// length times the highest operation cost. Returns 1.0 when both strings are
+// empty.
 func (m *LevenshteinMetric) Similarity(a, b string) float64 {
 	var lenA, lenB int
 	if m.ASCIIOnly {
@@ -123,7 +122,22 @@ func (m *LevenshteinMetric) Similarity(a, b string) float64 {
 	}
 
 	d := m.Distance(a, b)
-	maxCost := max(m.InsertCost, max(m.DeleteCost, m.ReplaceCost))
+	insCost, delCost, repCost := m.costs()
+	maxCost := max(insCost, delCost, repCost)
 
 	return 1.0 - float64(d)/float64(maxLen*maxCost)
+}
+
+// costs returns the operation costs to use: negative costs count as 0, and
+// all-zero costs (the zero value) mean unit costs.
+func (m *LevenshteinMetric) costs() (ins, del, rep int) {
+	ins = max(m.InsertCost, 0)
+	del = max(m.DeleteCost, 0)
+	rep = max(m.ReplaceCost, 0)
+
+	if ins == 0 && del == 0 && rep == 0 {
+		return 1, 1, 1
+	}
+
+	return ins, del, rep
 }
