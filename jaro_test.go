@@ -144,3 +144,38 @@ func BenchmarkJaroWinklerSimilarity(b *testing.B) {
 		JaroWinklerSimilarity("martha", "marhta")
 	}
 }
+
+func TestJaroSimilarity_OddTranspositions(t *testing.T) {
+	// Three matches out of order count as one transposition, as in
+	// Winkler's strcmp95, rapidfuzz and jellyfish.
+	const want = 0.7314814814814815
+
+	if got := JaroSimilarity("cabb", "abacbcbba"); math.Abs(got-want) > 1e-12 {
+		t.Errorf("JaroSimilarity = %v, want %v", got, want)
+	}
+	if got := (&JaroMetric{ASCIIOnly: true}).Similarity("cabb", "abacbcbba"); math.Abs(got-want) > 1e-12 {
+		t.Errorf("ASCII JaroSimilarity = %v, want %v", got, want)
+	}
+}
+
+func TestJaroWinklerMetric_ZeroValueUsesDefaults(t *testing.T) {
+	for _, m := range []*JaroWinklerMetric{{}, {ASCIIOnly: true}} {
+		if got, want := m.Similarity("martha", "marhta"), JaroWinklerSimilarity("martha", "marhta"); got != want {
+			t.Errorf("%+v.Similarity = %v, want %v", *m, got, want)
+		}
+	}
+}
+
+func TestJaroWinklerMetric_LongPrefixStaysInRange(t *testing.T) {
+	a := "abcdefghijklmnopqrstuvwxyz1"
+	b := "abcdefghijklmnopqrstuvwxyz2"
+
+	for _, m := range []*JaroWinklerMetric{
+		{BoostThreshold: 0.7, PrefixSize: 20},
+		{BoostThreshold: 0.7, PrefixSize: 20, ASCIIOnly: true},
+	} {
+		if got := m.Similarity(a, b); got > 1.0 {
+			t.Errorf("%+v.Similarity = %v, want <= 1", *m, got)
+		}
+	}
+}

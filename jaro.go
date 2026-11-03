@@ -20,9 +20,11 @@ func NewJaro() *JaroMetric {
 // matching if they appear within a window of max(len(a), len(b))/2 - 1
 // positions and counts transpositions among matched characters.
 func JaroSimilarity(a, b string) float64 {
-	ra := []rune(a)
-	rb := []rune(b)
+	return jaroRunes([]rune(a), []rune(b))
+}
 
+// jaroRunes computes Jaro similarity over rune slices.
+func jaroRunes(ra, rb []rune) float64 {
 	la := len(ra)
 	lb := len(rb)
 
@@ -86,7 +88,8 @@ func JaroSimilarity(a, b string) float64 {
 	}
 
 	m := float64(matches)
-	t := float64(transpositions) / 2.0
+	// Half the out-of-order matches, rounded down as in Winkler's strcmp95.
+	t := float64(transpositions / 2)
 
 	return (m/float64(la) + m/float64(lb) + (m-t)/m) / 3.0
 }
@@ -105,13 +108,17 @@ func (m *JaroMetric) Similarity(a, b string) float64 {
 // the strings share a common prefix.
 //
 // Set ASCIIOnly to true for faster processing of pure-ASCII strings.
+//
+// The zero value uses the defaults of NewJaroWinkler.
 type JaroWinklerMetric struct {
 	// BoostThreshold is the minimum Jaro score required to apply the prefix
 	// bonus. Default: 0.7.
 	BoostThreshold float64
 
 	// PrefixSize is the maximum number of prefix characters considered for
-	// the bonus. Default: 4.
+	// the bonus. Each shared prefix character adds 10% of the remaining
+	// distance to 1.0, so a prefix of 10 or more characters scores 1.0.
+	// Default: 4.
 	PrefixSize int
 
 	// ASCIIOnly skips rune conversion for faster ASCII processing.
@@ -137,57 +144,43 @@ func JaroWinklerSimilarity(a, b string) float64 {
 // Similarity returns the Jaro-Winkler similarity between a and b as a value
 // in [0, 1], where 1.0 means identical.
 func (m *JaroWinklerMetric) Similarity(a, b string) float64 {
+	threshold, prefixSize := m.BoostThreshold, m.PrefixSize
+	if threshold == 0 && prefixSize == 0 {
+		threshold, prefixSize = 0.7, 4
+	}
+
 	if m.ASCIIOnly {
-		la := len(a)
-		lb := len(b)
-
-		if la == 0 && lb == 0 {
-			return 1.0
-		}
-
 		jaro := jaroASCII(a, b)
-
-		if jaro < m.BoostThreshold {
+		if jaro < threshold {
 			return jaro
 		}
 
-		prefixLen := min(min(la, lb), m.PrefixSize)
 		prefix := 0
-
-		for i := 0; i < prefixLen; i++ {
-			if a[i] != b[i] {
-				break
-			}
-
+		for prefix < min(len(a), len(b), prefixSize) && a[prefix] == b[prefix] {
 			prefix++
 		}
 
-		return jaro + float64(prefix)*0.1*(1.0-jaro)
+		return winklerBoost(jaro, prefix)
 	}
 
 	ra := []rune(a)
 	rb := []rune(b)
 
-	if len(ra) == 0 && len(rb) == 0 {
-		return 1.0
-	}
-
-	jaro := JaroSimilarity(a, b)
-
-	if jaro < m.BoostThreshold {
+	jaro := jaroRunes(ra, rb)
+	if jaro < threshold {
 		return jaro
 	}
 
-	prefixLen := min(min(len(ra), len(rb)), m.PrefixSize)
 	prefix := 0
-
-	for i := 0; i < prefixLen; i++ {
-		if ra[i] != rb[i] {
-			break
-		}
-
+	for prefix < min(len(ra), len(rb), prefixSize) && ra[prefix] == rb[prefix] {
 		prefix++
 	}
 
-	return jaro + float64(prefix)*0.1*(1.0-jaro)
+	return winklerBoost(jaro, prefix)
+}
+
+// winklerBoost adds the Winkler prefix bonus to a Jaro score, capped so the
+// result never exceeds 1.0.
+func winklerBoost(jaro float64, prefix int) float64 {
+	return jaro + min(float64(prefix)*0.1, 1.0)*(1.0-jaro)
 }

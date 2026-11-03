@@ -279,7 +279,8 @@ func jaroASCII(a, b string) float64 {
 	}
 
 	m := float64(matches)
-	t := float64(transpositions) / 2.0
+	// Half the out-of-order matches, rounded down as in Winkler's strcmp95.
+	t := float64(transpositions / 2)
 
 	return (m/float64(la) + m/float64(lb) + (m-t)/m) / 3.0
 }
