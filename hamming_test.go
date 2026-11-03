@@ -1,6 +1,7 @@
 package strsim
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -116,5 +117,22 @@ func BenchmarkHammingSimilarity(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		m.Similarity(a, s)
+	}
+}
+
+func TestHamming_ErrLengthMismatch(t *testing.T) {
+	if _, err := Hamming("abc", "ab"); !errors.Is(err, ErrLengthMismatch) {
+		t.Errorf("Hamming error = %v, want ErrLengthMismatch", err)
+	}
+
+	for _, m := range []*HammingMetric{NewHamming(), {ASCIIOnly: true}} {
+		func() {
+			defer func() {
+				if r := recover(); r != ErrLengthMismatch {
+					t.Errorf("%+v.Distance panic = %v, want ErrLengthMismatch", *m, r)
+				}
+			}()
+			m.Distance("abc", "ab")
+		}()
 	}
 }

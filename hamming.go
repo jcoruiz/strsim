@@ -5,6 +5,9 @@ import (
 	"unicode/utf8"
 )
 
+// ErrLengthMismatch is returned by Hamming when the strings differ in length.
+var ErrLengthMismatch = errors.New("strsim: hamming distance requires strings of equal length")
+
 // HammingMetric computes the Hamming distance between two strings of equal
 // length. Hamming distance is the number of positions at which the
 // corresponding characters differ.
@@ -22,17 +25,22 @@ func NewHamming() *HammingMetric {
 	return &HammingMetric{}
 }
 
-// Hamming returns the Hamming distance between two strings. It returns an error
-// if the strings have different rune lengths, since Hamming distance is only
-// defined for strings of equal length.
+// Hamming returns the Hamming distance between two strings. It returns
+// ErrLengthMismatch if the strings have different rune lengths, since Hamming
+// distance is only defined for strings of equal length.
 func Hamming(a, b string) (int, error) {
 	ra := []rune(a)
 	rb := []rune(b)
 
 	if len(ra) != len(rb) {
-		return 0, errors.New("strsim: hamming distance requires strings of equal rune length")
+		return 0, ErrLengthMismatch
 	}
 
+	return hammingRunes(ra, rb), nil
+}
+
+// hammingRunes counts the positions where two equal-length rune slices differ.
+func hammingRunes(ra, rb []rune) int {
 	d := 0
 	for i := range ra {
 		if ra[i] != rb[i] {
@@ -40,7 +48,7 @@ func Hamming(a, b string) (int, error) {
 		}
 	}
 
-	return d, nil
+	return d
 }
 
 // HammingSimilarity returns the normalized Hamming similarity between a and b
@@ -51,11 +59,12 @@ func HammingSimilarity(a, b string) float64 {
 }
 
 // Distance returns the Hamming distance between a and b. It panics if the
-// strings have different lengths (rune length, or byte length if ASCIIOnly).
+// strings have different lengths (rune length, or byte length if ASCIIOnly);
+// use Hamming to get an error instead.
 func (m *HammingMetric) Distance(a, b string) int {
 	if m.ASCIIOnly {
 		if len(a) != len(b) {
-			panic("strsim: hamming distance requires strings of equal byte length")
+			panic(ErrLengthMismatch)
 		}
 		return hammingASCII(a, b)
 	}
@@ -99,14 +108,7 @@ func (m *HammingMetric) Similarity(a, b string) float64 {
 		return 1.0
 	}
 
-	d := 0
-	for i := range ra {
-		if ra[i] != rb[i] {
-			d++
-		}
-	}
-
-	return 1.0 - float64(d)/float64(n)
+	return 1.0 - float64(hammingRunes(ra, rb))/float64(n)
 }
 
 // runeLen returns the number of runes in a string. This is a package-level
