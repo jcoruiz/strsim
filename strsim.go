@@ -1,9 +1,10 @@
-// Package strsim provides comprehensive string similarity metrics, distance
-// functions, and phonetic encoding algorithms.
+// Package strsim provides string similarity metrics, edit distances, and
+// phonetic encoding algorithms with a unified API and no dependencies.
 //
-// It combines edit-distance, token-based, and phonetic algorithms in a single
-// package with a unified API. Every metric returns both raw distance and
-// normalized similarity in [0, 1], where 1.0 means identical.
+// Every metric returns a similarity in [0, 1], where 1.0 means identical and
+// two empty strings are identical; none returns NaN. Edit-distance metrics also
+// return the raw distance. All metrics compare runes, not bytes, unless their
+// ASCIIOnly field is set.
 //
 // # Quick Start
 //
@@ -23,7 +24,21 @@
 //
 // All similarity metrics implement the [Metric] interface, allowing them to be
 // used interchangeably. Distance metrics additionally implement [DistanceMetric].
-// Phonetic encoders implement the [Encoder] interface.
+// Phonetic encoders implement the [Encoder] interface, and Double Metaphone the
+// [DualEncoder] interface.
+//
+// # Configuration
+//
+// Metrics and encoders are structs with exported fields. The zero value of
+// every struct works and, except for [NYSIISEncoder] (where MaxLength 0 means
+// unlimited), behaves like the matching New constructor. Metrics hold no
+// state, so one value can be shared across goroutines.
+//
+// # Phonetic encoding
+//
+// Phonetic encoders read Latin letters only. Diacritics are folded first, in
+// composed or decomposed form ("Muñoz" encodes like "Munoz", "Strauß" like
+// "Strauss"); other characters are ignored.
 package strsim
 
 // Metric computes similarity between two strings.

@@ -5,16 +5,16 @@
 [![codecov](https://codecov.io/gh/jcoruiz/strsim/branch/main/graph/badge.svg)](https://codecov.io/gh/jcoruiz/strsim)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jcoruiz/strsim.svg)](https://pkg.go.dev/github.com/jcoruiz/strsim)
 
-Comprehensive string similarity metrics for Go. Edit distance, token-based similarity, and phonetic encoding — all in one package with a unified API.
+String similarity metrics for Go. Edit distance, token-based similarity, and phonetic encoding — all in one package with a unified API.
 
 ## Features
 
-- **15+ algorithms** in a single zero-dependency package
+- **15 algorithms** in a single zero-dependency package
 - **Unified interfaces** — every metric implements `Metric` (similarity) or `DistanceMetric` (distance + similarity)
-- **Correct Unicode handling** — all algorithms operate on runes, not bytes
-- **Safe edge case handling** — empty strings return 1.0 similarity (never NaN), mismatched lengths return 0.0
-- **Batch operations** — `FindBestMatch`, `FindTopN`, `FindAboveThreshold`
-- **Zero dependencies** — stdlib only
+- **Unicode-aware** — metrics compare runes, not bytes; phonetic encoders fold Latin diacritics (`Muñoz` encodes like `Munoz`)
+- **Safe edge cases** — similarities are always in `[0, 1]` and never NaN; two empty strings score 1.0; zero-value structs work
+- **Checked against reference implementations** — distances and Jaro-Winkler match rapidfuzz and jellyfish; phonetic codes match Apache Commons Codec (see [Phonetic Encoding](#phonetic-encoding))
+- **Batch operations** — `FindBestMatch`, `FindTopN`, `FindAboveThreshold`, with deterministic tie order
 
 ## Quick Start
 
@@ -42,8 +42,8 @@ func main() {
 
     // Find best match from candidates
     candidates := []string{"golang", "gold", "golem", "gopher", "python"}
-    match := strsim.FindBestMatch("go", candidates, strsim.NewJaroWinkler())
-    fmt.Printf("%s (%.2f)\n", match.Value, match.Similarity)
+    match := strsim.FindBestMatch("goland", candidates, strsim.NewJaroWinkler())
+    fmt.Printf("%s (%.2f)\n", match.Value, match.Similarity)  // golang (0.93)
 }
 ```
 
@@ -53,7 +53,7 @@ func main() {
 
 | Algorithm | Function | Returns |
 |---|---|---|
-| Hamming | `Hamming(a, b)` | `int, error` (equal-length only) |
+| Hamming | `Hamming(a, b)` | `int, error` (equal-length only, `ErrLengthMismatch` otherwise) |
 | Levenshtein | `Levenshtein(a, b)` | `int` |
 | Optimal String Alignment | `OSA(a, b)` | `int` |
 | Damerau-Levenshtein | `DamerauLevenshtein(a, b)` | `int` |
@@ -69,8 +69,8 @@ All edit distance functions have a corresponding `*Similarity` variant returning
 | Jaro-Winkler | `JaroWinklerSimilarity(a, b)` | Jaro + prefix bonus |
 | Cosine (n-gram) | `CosineSimilarity(a, b)` | TF-weighted n-gram vectors |
 | Jaccard (n-gram) | `JaccardSimilarity(a, b)` | Set intersection / union |
-| Sørensen-Dice (n-gram) | `DiceSimilarity(a, b)` | 2·intersection / (|A| + |B|) |
-| Overlap Coefficient | `OverlapSimilarity(a, b)` | Intersection / min(|A|, |B|) |
+| Sørensen-Dice (n-gram) | `DiceSimilarity(a, b)` | 2·intersection / (\|A\| + \|B\|) |
+| Overlap Coefficient | `OverlapSimilarity(a, b)` | Intersection / min(\|A\|, \|B\|) |
 
 ### Phonetic Encoding
 
@@ -82,6 +82,14 @@ All edit distance functions have a corresponding `*Similarity` variant returning
 | NYSIIS | `NYSIIS(s)` | `string` |
 
 All phonetic functions have a corresponding `*Match(a, b)` variant returning `bool`.
+
+Encoders read Latin letters: diacritics are folded first (`é` → `E`, `ñ` → `N`, `ß` → `SS`, in composed or decomposed form) and other characters are ignored. Double Metaphone keeps word boundaries, so `"San Jose"` and `"Mac Gregor"` get their special rules.
+
+Codes match [Apache Commons Codec](https://commons.apache.org/proper/commons-codec/) on the 3,000 most common US surnames (`testdata/phonetic_reference.tsv`), with three deliberate differences:
+
+- Metaphone encodes an initial `CH` as `X`, as in Philips' rules (`Church` → `XRX`; Commons Codec gives `KRX`).
+- Double Metaphone codes never contain spaces (`Raj` → `RJ` / `R`; Commons Codec gives `"R "`).
+- NYSIIS keeps a one-letter key (`Ash` → `A`; Commons Codec gives an empty string).
 
 ## Interfaces
 
@@ -102,6 +110,11 @@ type DistanceMetric interface {
 // Phonetic encoder.
 type Encoder interface {
     Encode(s string) string
+}
+
+// Phonetic encoder with primary and alternate codes (Double Metaphone).
+type DualEncoder interface {
+    Encode(s string) (primary, alternate string)
 }
 ```
 
@@ -139,9 +152,11 @@ top3 := strsim.FindTopN("go", candidates, 3, m)
 matches := strsim.FindAboveThreshold("go", candidates, 0.7, m)
 ```
 
+Ties keep the order of `candidates`, so results are deterministic.
+
 ## Configurable Metrics
 
-Most algorithms have configurable variants:
+Metrics and encoders are plain structs. The zero value of each one behaves like its `New*` constructor, except `NYSIISEncoder`, where `MaxLength: 0` means unlimited. Metrics hold no state and are safe for concurrent use.
 
 ```go
 // Custom Levenshtein costs
@@ -150,7 +165,7 @@ lev := &strsim.LevenshteinMetric{
     DeleteCost:  1,
     ReplaceCost: 2,
 }
-dist := lev.Distance("kitten", "sitting")
+dist := lev.Distance("kitten", "sitting")  // 5
 
 // Custom Jaro-Winkler parameters
 jw := &strsim.JaroWinklerMetric{
@@ -165,58 +180,52 @@ sim = ng.Cosine("night", "nacht")
 
 // Custom phonetic code length
 enc := &strsim.SoundexEncoder{MaxLength: 6}
-code := enc.Encode("Washington")
+code := enc.Encode("Washington")  // W25235
 ```
 
 ## ASCII Fast Path
 
-All metrics support an `ASCIIOnly` mode that skips rune conversion for faster processing of pure-ASCII input. This produces **incorrect results for multi-byte UTF-8 strings** — use only when you know your input is ASCII (identifiers, codes, URLs, English text).
+The edit-distance metrics, Jaro, and Jaro-Winkler have an `ASCIIOnly` mode that compares bytes instead of runes. On ASCII input it returns exactly the same results as the default mode; on multi-byte UTF-8 input it returns **incorrect results** — use it only when you know your input is ASCII (identifiers, codes, URLs, English text).
 
 ```go
-// Up to 11x faster for ASCII-only input
-m := &strsim.LevenshteinMetric{
-    InsertCost: 1, DeleteCost: 1, ReplaceCost: 1,
-    ASCIIOnly: true,
-}
+m := &strsim.LevenshteinMetric{ASCIIOnly: true}
 dist := m.Distance("kitten", "sitting")
 
 // Works with batch operations too
-jw := &strsim.JaroWinklerMetric{
-    BoostThreshold: 0.7, PrefixSize: 4,
-    ASCIIOnly: true,
-}
+jw := &strsim.JaroWinklerMetric{ASCIIOnly: true}
 match := strsim.FindBestMatch("query", candidates, jw)
 ```
 
 | Algorithm | Rune (ns/op) | ASCII (ns/op) | Speedup |
 |---|---|---|---|
-| Hamming | 117 | 11 | **11x** |
-| Damerau-Levenshtein | 17,477 | 6,804 | **2.6x** |
-| Jaro-Winkler | 493 | 234 | **2.1x** |
-| Levenshtein | 3,144 | 2,787 | 1.1x |
+| Hamming | 108 | 10 | **10.7x** |
+| Damerau-Levenshtein | 17,599 | 6,646 | **2.6x** |
+| Jaro-Winkler | 439 | 222 | **2.0x** |
+| Levenshtein | 2,670 | 2,702 | 1.0x |
 
 Inputs: 43-char ASCII strings.
 
 ## Benchmarks
 
-Measured on AMD Ryzen, Go 1.22 (`go test -bench=. -benchmem`):
+Measured on an AMD Ryzen 9 9950X3D, Go 1.22 (`go test -bench=. -benchmem`):
 
 | Algorithm | ns/op | B/op | allocs/op |
 |---|---|---|---|
-| Soundex | 30 | 21 | 3 |
+| Soundex | 34 | 4 | 1 |
+| Jaro-Winkler | 35 | 16 | 2 |
 | Hamming | 39 | 0 | 0 |
-| Jaro-Winkler | 48 | 16 | 2 |
-| Jaro | 54 | 32 | 2 |
-| Metaphone | 56 | 32 | 3 |
-| NYSIIS | 86 | 64 | 4 |
-| Double Metaphone | 134 | 32 | 4 |
-| LCS | 534 | 448 | 2 |
-| Cosine (bigram) | 850 | 507 | 18 |
-| Levenshtein | 1017 | 448 | 2 |
-| OSA | 1030 | 672 | 3 |
-| Jaccard (bigram) | 1172 | 1084 | 22 |
+| Metaphone | 47 | 16 | 2 |
+| Jaro | 55 | 32 | 2 |
+| NYSIIS | 70 | 32 | 2 |
+| Double Metaphone | 132 | 21 | 3 |
+| Jaccard (bigram) | 511 | 896 | 6 |
+| LCS | 531 | 448 | 2 |
+| Cosine (bigram) | 613 | 896 | 6 |
+| Levenshtein | 975 | 448 | 2 |
+| OSA | 1,009 | 672 | 3 |
+| Damerau-Levenshtein | 6,202 | 7,358 | 6 |
 
-Inputs: "kitten"/"sitting" for edit distance, "Schneider" for phonetic, "night"/"nacht" for n-gram.
+Inputs differ per algorithm (26-letter strings for edit distances, names for phonetic encoders); see the `Benchmark*` functions in the test files.
 
 ## Why strsim?
 
@@ -228,6 +237,10 @@ The Go ecosystem for string similarity is fragmented across 8+ libraries, each w
 - **matchr** — most complete phonetic support but GPLv3 licensed
 
 strsim consolidates everything into one MIT-licensed package with correct Unicode handling, consistent APIs, and no edge-case surprises.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
