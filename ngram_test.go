@@ -296,3 +296,30 @@ func BenchmarkOverlapSimilarity(b *testing.B) {
 		OverlapSimilarity("jellyfish", "smellyfish")
 	}
 }
+
+func TestNgramMetric_NonPositiveSizeUsesBigrams(t *testing.T) {
+	bigram := NewNgram()
+
+	for _, size := range []int{0, -1} {
+		m := &NgramMetric{Size: size}
+		if got, want := m.Dice("night", "nacht"), bigram.Dice("night", "nacht"); got != want {
+			t.Errorf("Size %d: Dice = %v, want %v", size, got, want)
+		}
+		if got, want := m.Cosine("night", "nacht"), bigram.Cosine("night", "nacht"); got != want {
+			t.Errorf("Size %d: Cosine = %v, want %v", size, got, want)
+		}
+	}
+}
+
+func TestNgramMetric_InvalidUTF8ComparesRunes(t *testing.T) {
+	// Both strings decode to U+FFFD followed by 'a', as []rune would see them.
+	m := NewNgram()
+
+	for name, f := range map[string]func(a, b string) float64{
+		"Cosine": m.Cosine, "Jaccard": m.Jaccard, "Dice": m.Dice, "Overlap": m.Overlap,
+	} {
+		if got := f("\xffa", "\xfea"); got != 1 {
+			t.Errorf("%s(\"\\xffa\", \"\\xfea\") = %v, want 1", name, got)
+		}
+	}
+}

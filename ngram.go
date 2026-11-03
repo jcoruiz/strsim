@@ -2,12 +2,17 @@ package strsim
 
 import (
 	"math"
+	"unicode/utf8"
 )
 
 // NgramMetric computes string similarity using n-gram based coefficients.
 // It supports Cosine, Jaccard, Sorensen-Dice, and Overlap similarity.
+//
+// Strings shorter than Size form a single n-gram, so short strings are only
+// similar when they are equal.
 type NgramMetric struct {
-	// Size is the n-gram size. Default: 2 (bigrams).
+	// Size is the n-gram size, in runes. Values <= 0 use the default of 2
+	// (bigrams).
 	Size int
 }
 
@@ -16,58 +21,73 @@ func NewNgram() *NgramMetric {
 	return &NgramMetric{Size: 2}
 }
 
-// ngramFrequency returns the term-frequency map of n-grams for the given rune
-// slice. If the slice is shorter than n, the entire string is treated as a
-// single n-gram.
-func ngramFrequency(runes []rune, n int) map[string]int {
-	freq := make(map[string]int)
-
-	if len(runes) == 0 {
-		return freq
+// size returns the n-gram size to use.
+func (m *NgramMetric) size() int {
+	if m.Size <= 0 {
+		return 2
 	}
 
-	if len(runes) < n {
-		freq[string(runes)] = 1
-		return freq
+	return m.Size
+}
+
+// ngramFrequency returns the term-frequency map of the rune n-grams of s. The
+// keys are substrings of s, so building the map does not copy the grams. If s
+// has fewer than n runes, the whole string is a single n-gram.
+func ngramFrequency(s string, n int) map[string]int {
+	// Compare invalid UTF-8 the way []rune decodes it: each bad byte is
+	// U+FFFD.
+	if !utf8.ValidString(s) {
+		s = string([]rune(s))
 	}
 
-	for i := 0; i <= len(runes)-n; i++ {
-		gram := string(runes[i : i+n])
-		freq[gram]++
+	// starts holds the byte offset of every rune, plus len(s).
+	starts := make([]int, 0, len(s)+1)
+	for i := range s {
+		starts = append(starts, i)
+	}
+
+	runes := len(starts)
+	starts = append(starts, len(s))
+
+	if runes <= n {
+		return map[string]int{s: 1}
+	}
+
+	freq := make(map[string]int, runes-n+1)
+	for i := 0; i+n <= runes; i++ {
+		freq[s[starts[i]:starts[i+n]]]++
 	}
 
 	return freq
 }
 
-// ngramSet returns the set of distinct n-grams for the given rune slice.
-func ngramSet(runes []rune, n int) map[string]bool {
-	freq := ngramFrequency(runes, n)
-	set := make(map[string]bool, len(freq))
-
-	for k := range freq {
-		set[k] = true
+// ngramIntersection returns the number of distinct n-grams that a and b share.
+func ngramIntersection(a, b map[string]int) int {
+	if len(a) > len(b) {
+		a, b = b, a
 	}
 
-	return set
+	shared := 0
+
+	for gram := range a {
+		if _, ok := b[gram]; ok {
+			shared++
+		}
+	}
+
+	return shared
 }
 
 // Cosine returns the cosine similarity between a and b using term-frequency
 // n-gram vectors: dot(A, B) / (||A|| * ||B||). Returns 1.0 when both strings
 // are empty, 0.0 when only one is empty.
 func (m *NgramMetric) Cosine(a, b string) float64 {
-	ra := []rune(a)
-	rb := []rune(b)
-
-	if len(ra) == 0 && len(rb) == 0 {
-		return 1.0
+	if a == "" || b == "" {
+		return emptySimilarity(a, b)
 	}
 
-	if len(ra) == 0 || len(rb) == 0 {
-		return 0.0
-	}
-
-	freqA := ngramFrequency(ra, m.Size)
-	freqB := ngramFrequency(rb, m.Size)
+	freqA := ngramFrequency(a, m.size())
+	freqB := ngramFrequency(b, m.size())
 
 	var dot float64
 
@@ -87,44 +107,22 @@ func (m *NgramMetric) Cosine(a, b string) float64 {
 		normB += float64(c) * float64(c)
 	}
 
-	denom := math.Sqrt(normA) * math.Sqrt(normB)
-	if denom == 0 {
-		return 0.0
-	}
-
-	return dot / denom
+	// Rounding can push identical vectors a hair above 1.
+	return min(dot/(math.Sqrt(normA)*math.Sqrt(normB)), 1.0)
 }
 
 // Jaccard returns the Jaccard similarity between a and b using set semantics:
 // |intersection| / |union|. Returns 1.0 when both strings are empty.
 func (m *NgramMetric) Jaccard(a, b string) float64 {
-	ra := []rune(a)
-	rb := []rune(b)
-
-	if len(ra) == 0 && len(rb) == 0 {
-		return 1.0
+	if a == "" || b == "" {
+		return emptySimilarity(a, b)
 	}
 
-	if len(ra) == 0 || len(rb) == 0 {
-		return 0.0
-	}
-
-	setA := ngramSet(ra, m.Size)
-	setB := ngramSet(rb, m.Size)
-
-	intersection := 0
-
-	for gram := range setA {
-		if setB[gram] {
-			intersection++
-		}
-	}
+	setA := ngramFrequency(a, m.size())
+	setB := ngramFrequency(b, m.size())
+	intersection := ngramIntersection(setA, setB)
 
 	union := len(setA) + len(setB) - intersection
-
-	if union == 0 {
-		return 0.0
-	}
 
 	return float64(intersection) / float64(union)
 }
@@ -133,67 +131,29 @@ func (m *NgramMetric) Jaccard(a, b string) float64 {
 // semantics: 2 * |intersection| / (|A| + |B|). Returns 1.0 when both strings
 // are empty.
 func (m *NgramMetric) Dice(a, b string) float64 {
-	ra := []rune(a)
-	rb := []rune(b)
-
-	if len(ra) == 0 && len(rb) == 0 {
-		return 1.0
+	if a == "" || b == "" {
+		return emptySimilarity(a, b)
 	}
 
-	if len(ra) == 0 || len(rb) == 0 {
-		return 0.0
-	}
+	setA := ngramFrequency(a, m.size())
+	setB := ngramFrequency(b, m.size())
+	intersection := ngramIntersection(setA, setB)
 
-	setA := ngramSet(ra, m.Size)
-	setB := ngramSet(rb, m.Size)
-
-	intersection := 0
-
-	for gram := range setA {
-		if setB[gram] {
-			intersection++
-		}
-	}
-
-	total := len(setA) + len(setB)
-	if total == 0 {
-		return 0.0
-	}
-
-	return 2.0 * float64(intersection) / float64(total)
+	return 2.0 * float64(intersection) / float64(len(setA)+len(setB))
 }
 
 // Overlap returns the overlap coefficient between a and b:
 // |intersection| / min(|A|, |B|). Returns 1.0 when both strings are empty.
 func (m *NgramMetric) Overlap(a, b string) float64 {
-	ra := []rune(a)
-	rb := []rune(b)
-
-	if len(ra) == 0 && len(rb) == 0 {
-		return 1.0
+	if a == "" || b == "" {
+		return emptySimilarity(a, b)
 	}
 
-	if len(ra) == 0 || len(rb) == 0 {
-		return 0.0
-	}
+	setA := ngramFrequency(a, m.size())
+	setB := ngramFrequency(b, m.size())
+	intersection := ngramIntersection(setA, setB)
 
-	setA := ngramSet(ra, m.Size)
-	setB := ngramSet(rb, m.Size)
-
-	intersection := 0
-
-	for gram := range setA {
-		if setB[gram] {
-			intersection++
-		}
-	}
-
-	minSize := min(len(setA), len(setB))
-	if minSize == 0 {
-		return 0.0
-	}
-
-	return float64(intersection) / float64(minSize)
+	return float64(intersection) / float64(min(len(setA), len(setB)))
 }
 
 // Similarity returns the Sorensen-Dice similarity, which is the default
@@ -223,4 +183,14 @@ func DiceSimilarity(a, b string) float64 {
 // bigrams.
 func OverlapSimilarity(a, b string) float64 {
 	return NewNgram().Overlap(a, b)
+}
+
+// emptySimilarity is the similarity when at least one string is empty: 1.0 if
+// both are, 0.0 otherwise.
+func emptySimilarity(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+
+	return 0.0
 }
