@@ -10,8 +10,8 @@ const defaultNYSIISLength = 6
 // similar-sounding names together. The algorithm handles common English name
 // patterns and is particularly effective for American names.
 type NYSIISEncoder struct {
-	// MaxLength is the maximum length of the generated code. Default is 6.
-	// Set to 0 for unlimited length.
+	// MaxLength is the maximum length of the generated code. NewNYSIIS sets
+	// the standard 6; 0 means unlimited and negative values use 6.
 	MaxLength int
 }
 
@@ -31,21 +31,20 @@ func NYSIISMatch(a, b string) bool {
 	return NewNYSIIS().Match(a, b)
 }
 
-// Encode returns the NYSIIS code for the given string. It returns an empty
-// string if the input contains no ASCII letters.
+// Encode returns the NYSIIS code for the given string. Latin diacritics are
+// folded (é → E) and other non-letters are ignored. It returns an empty string
+// if the input contains no letters.
 func (e *NYSIISEncoder) Encode(s string) string {
 	maxLen := e.MaxLength
 	if maxLen < 0 {
 		maxLen = defaultNYSIISLength
 	}
 
-	// Extract ASCII alpha, convert to uppercase.
-	letters := toASCIIAlpha(s)
-	if len(letters) == 0 {
+	var lettersBuf [32]byte
+	word := string(appendLetters(lettersBuf[:0], s, false))
+	if word == "" {
 		return ""
 	}
-
-	word := strings.ToUpper(string(letters))
 
 	// Step 1: Handle initial prefixes.
 	word = nysiisHandlePrefixes(word)
@@ -152,8 +151,8 @@ func (e *NYSIISEncoder) Encode(s string) string {
 		result = result[:len(result)-1]
 	}
 
-	// Step 6: Translate AY at end → Y.
-	if len(result) >= 2 && result[len(result)-2:] == "AY" {
+	// Step 6: Translate AY at end → Y, keeping the first letter of the name.
+	if len(result) > 2 && result[len(result)-2:] == "AY" {
 		result = result[:len(result)-2] + "Y"
 	}
 

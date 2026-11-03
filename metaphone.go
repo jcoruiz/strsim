@@ -8,8 +8,12 @@ const defaultMetaphoneLength = 4
 // MetaphoneEncoder implements the original Metaphone phonetic algorithm by
 // Lawrence Philips. It transforms an English word into a phonetic key that
 // represents its approximate pronunciation.
+//
+// The rules follow Apache Commons Codec's Metaphone, except that an initial
+// CH is always encoded as X ("Church" → XRX), as in Philips' original rules.
 type MetaphoneEncoder struct {
-	// MaxLength is the maximum length of the generated code. Default is 4.
+	// MaxLength is the maximum length of the generated code. Values <= 0 use
+	// the default of 4.
 	MaxLength int
 }
 
@@ -29,259 +33,163 @@ func MetaphoneMatch(a, b string) bool {
 	return NewMetaphone().Match(a, b)
 }
 
-// Encode returns the Metaphone code for the given string. It returns an empty
-// string if the input contains no ASCII letters.
+// Encode returns the Metaphone code for the given string. Latin diacritics are
+// folded (é → E) and other non-letters are ignored. It returns an empty string
+// if the input contains no letters; a single letter is its own code.
 func (e *MetaphoneEncoder) Encode(s string) string {
 	maxLen := e.MaxLength
 	if maxLen <= 0 {
 		maxLen = defaultMetaphoneLength
 	}
 
-	// Normalize: extract ASCII alpha, convert to uppercase.
-	letters := toASCIIAlpha(s)
-	if len(letters) == 0 {
-		return ""
+	var lettersBuf [32]byte
+	w := string(appendLetters(lettersBuf[:0], s, false))
+	if len(w) <= 1 {
+		return w
 	}
 
-	word := strings.ToUpper(string(letters))
-	n := len(word)
-
-	// Handle initial silent letter pairs.
+	// Initial exceptions: silent first letter of AE, GN, KN, PN and WR;
+	// WH → W; X → S.
 	switch {
-	case n >= 2 && word[:2] == "AE":
-		word = word[1:]
-		n--
-	case n >= 2 && word[:2] == "GN":
-		word = word[1:]
-		n--
-	case n >= 2 && word[:2] == "KN":
-		word = word[1:]
-		n--
-	case n >= 2 && word[:2] == "PN":
-		word = word[1:]
-		n--
-	case n >= 2 && word[:2] == "WR":
-		word = word[1:]
-		n--
-	case n >= 1 && word[0] == 'X':
-		word = "S" + word[1:]
+	case w[1] == 'N' && (w[0] == 'G' || w[0] == 'K' || w[0] == 'P'),
+		w[0] == 'A' && w[1] == 'E',
+		w[0] == 'W' && w[1] == 'R':
+		w = w[1:]
+	case w[0] == 'W' && w[1] == 'H':
+		w = "W" + w[2:]
+	case w[0] == 'X':
+		w = "S" + w[1:]
 	}
 
-	var buf strings.Builder
-	buf.Grow(maxLen)
+	n := len(w)
+	var codeBuf [8]byte
+	code := codeBuf[:0]
 
-	i := 0
-	for i < n && buf.Len() < maxLen {
-		ch := word[i]
+	for i := 0; i < n && len(code) < maxLen; i++ {
+		ch := w[i]
 
 		// Skip duplicate adjacent letters, except C.
-		if i > 0 && ch == word[i-1] && ch != 'C' {
-			i++
+		if ch != 'C' && i > 0 && w[i-1] == ch {
 			continue
 		}
 
+		prev := byteAt(w, i-1)
+		next := byteAt(w, i+1)
+
 		switch ch {
 		case 'A', 'E', 'I', 'O', 'U':
-			// Vowels are only kept if they are the first character.
+			// Vowels are only kept as the first letter.
 			if i == 0 {
-				buf.WriteByte(ch)
+				code = append(code, ch)
 			}
-			i++
 
 		case 'B':
-			// B is silent if after M at end of word.
-			if !(i > 0 && word[i-1] == 'M' && i == n-1) {
-				buf.WriteByte('B')
+			// Silent in a final MB ("dumb").
+			if i < n-1 || prev != 'M' {
+				code = append(code, 'B')
 			}
-			i++
 
 		case 'C':
-			if i+1 < n && word[i+1] == 'H' {
-				buf.WriteByte('X')
-				i += 2
-			} else if i+1 < n && (word[i+1] == 'I' || word[i+1] == 'E' || word[i+1] == 'Y') {
-				if i > 0 && word[i-1] == 'S' {
-					// SC before I, E, Y → skip the C.
-					i++
-					continue
-				}
-				buf.WriteByte('S')
-				i++
-			} else {
-				buf.WriteByte('K')
-				i++
+			switch {
+			case prev == 'S' && isFrontVowel(next):
+				// SCI, SCE, SCY: silent.
+			case hasAt(w, i, "CIA"):
+				code = append(code, 'X')
+			case isFrontVowel(next):
+				code = append(code, 'S')
+			case prev == 'S' && next == 'H':
+				code = append(code, 'K') // SCH
+			case next == 'H':
+				code = append(code, 'X')
+			default:
+				code = append(code, 'K')
 			}
 
 		case 'D':
-			if i+1 < n && word[i+1] == 'G' {
-				if i+2 < n && (word[i+2] == 'I' || word[i+2] == 'E' || word[i+2] == 'Y') {
-					buf.WriteByte('J')
-					i += 3
-				} else {
-					buf.WriteByte('T')
-					i++
-				}
+			if next == 'G' && isFrontVowel(byteAt(w, i+2)) {
+				code = append(code, 'J') // DGE, DGI, DGY
+				i += 2
 			} else {
-				buf.WriteByte('T')
-				i++
+				code = append(code, 'T')
 			}
-
-		case 'F':
-			buf.WriteByte('F')
-			i++
 
 		case 'G':
-			silent := false
-
-			// G before H: silent if H is not at end and char after H is not a vowel,
-			// or GH at end of word.
-			if i+1 < n && word[i+1] == 'H' {
-				if i+2 >= n {
-					// GH at end of word: G is silent, skip both.
-					silent = true
-					i += 2
-				} else if !metaphoneIsVowel(word[i+2]) {
-					// GH followed by non-vowel: both silent.
-					silent = true
-					i += 2
-				} else {
-					// GH followed by vowel: G → K.
-					buf.WriteByte('K')
-					i += 2
-					silent = true
-				}
+			switch {
+			case next == 'H' && !metaphoneIsVowel(byteAt(w, i+2)):
+				// GH at the end or before a consonant: silent.
+			case i > 0 && next == 'N':
+				// GN, GNED: silent.
+			case isFrontVowel(next):
+				code = append(code, 'J')
+			default:
+				code = append(code, 'K')
 			}
-
-			// GN at end: G is silent.
-			if !silent && i+1 < n && word[i+1] == 'N' && i+2 >= n {
-				silent = true
-				i += 2
-			}
-
-			if silent {
-				continue
-			}
-
-			if i+1 < n && (word[i+1] == 'I' || word[i+1] == 'E' || word[i+1] == 'Y') {
-				if i > 0 && word[i-1] == 'G' {
-					i++
-					continue
-				}
-				buf.WriteByte('J')
-			} else {
-				buf.WriteByte('K')
-			}
-			i++
 
 		case 'H':
-			// H is encoded only before a vowel and if the previous char is not a vowel.
-			if i+1 < n && metaphoneIsVowel(word[i+1]) {
-				if i == 0 || !metaphoneIsVowel(word[i-1]) {
-					buf.WriteByte('H')
-				}
+			// Kept only before a vowel and when not part of CH, SH, PH, TH, GH.
+			if metaphoneIsVowel(next) && strings.IndexByte("CSPTG", prev) < 0 {
+				code = append(code, 'H')
 			}
-			i++
 
-		case 'J':
-			buf.WriteByte('J')
-			i++
+		case 'F', 'J', 'L', 'M', 'N', 'R':
+			code = append(code, ch)
 
 		case 'K':
-			if i > 0 && word[i-1] == 'C' {
-				i++
-				continue
+			if prev != 'C' {
+				code = append(code, 'K')
 			}
-			buf.WriteByte('K')
-			i++
-
-		case 'L':
-			buf.WriteByte('L')
-			i++
-
-		case 'M':
-			buf.WriteByte('M')
-			i++
-
-		case 'N':
-			buf.WriteByte('N')
-			i++
 
 		case 'P':
-			if i+1 < n && word[i+1] == 'H' {
-				buf.WriteByte('F')
-				i += 2
+			if next == 'H' {
+				code = append(code, 'F')
 			} else {
-				buf.WriteByte('P')
-				i++
+				code = append(code, 'P')
 			}
 
 		case 'Q':
-			buf.WriteByte('K')
-			i++
-
-		case 'R':
-			buf.WriteByte('R')
-			i++
+			code = append(code, 'K')
 
 		case 'S':
-			if i+1 < n && word[i+1] == 'H' {
-				buf.WriteByte('X')
-				i += 2
-			} else if i+1 < n && word[i+1] == 'I' && i+2 < n && (word[i+2] == 'O' || word[i+2] == 'A') {
-				buf.WriteByte('X')
-				i += 3
+			if next == 'H' || hasAt(w, i, "SIO", "SIA") {
+				code = append(code, 'X')
 			} else {
-				buf.WriteByte('S')
-				i++
+				code = append(code, 'S')
 			}
 
 		case 'T':
-			if i+1 < n && word[i+1] == 'H' {
-				buf.WriteByte('0')
-				i += 2
-			} else if i+1 < n && word[i+1] == 'I' && i+2 < n && (word[i+2] == 'A' || word[i+2] == 'O') {
-				buf.WriteByte('X')
-				i += 3
-			} else {
-				buf.WriteByte('T')
-				i++
+			switch {
+			case hasAt(w, i, "TIA", "TIO"):
+				code = append(code, 'X')
+			case hasAt(w, i, "TCH"):
+				// Silent before CH.
+			case next == 'H':
+				code = append(code, '0')
+			default:
+				code = append(code, 'T')
 			}
 
 		case 'V':
-			buf.WriteByte('F')
-			i++
+			code = append(code, 'F')
 
-		case 'W':
-			// W is kept only before a vowel.
-			if i+1 < n && metaphoneIsVowel(word[i+1]) {
-				buf.WriteByte('W')
+		case 'W', 'Y':
+			// Kept only before a vowel.
+			if metaphoneIsVowel(next) {
+				code = append(code, ch)
 			}
-			i++
 
 		case 'X':
-			buf.WriteByte('K')
-			if buf.Len() < maxLen {
-				buf.WriteByte('S')
-			}
-			i++
-
-		case 'Y':
-			// Y is kept only before a vowel.
-			if i+1 < n && metaphoneIsVowel(word[i+1]) {
-				buf.WriteByte('Y')
-			}
-			i++
+			code = append(code, 'K', 'S')
 
 		case 'Z':
-			buf.WriteByte('S')
-			i++
-
-		default:
-			i++
+			code = append(code, 'S')
 		}
 	}
 
-	return buf.String()
+	if len(code) > maxLen {
+		code = code[:maxLen]
+	}
+
+	return string(code)
 }
 
 // Match reports whether two strings produce the same Metaphone code.
@@ -294,6 +202,35 @@ func metaphoneIsVowel(ch byte) bool {
 	switch ch {
 	case 'A', 'E', 'I', 'O', 'U':
 		return true
+	}
+
+	return false
+}
+
+// isFrontVowel reports whether ch is E, I or Y, which soften C and G.
+func isFrontVowel(ch byte) bool {
+	return ch == 'E' || ch == 'I' || ch == 'Y'
+}
+
+// byteAt returns s[i], or 0 when i is out of range.
+func byteAt(s string, i int) byte {
+	if i < 0 || i >= len(s) {
+		return 0
+	}
+
+	return s[i]
+}
+
+// hasAt reports whether any of subs occurs in s at position pos.
+func hasAt(s string, pos int, subs ...string) bool {
+	if pos < 0 {
+		return false
+	}
+
+	for _, sub := range subs {
+		if pos+len(sub) <= len(s) && s[pos:pos+len(sub)] == sub {
+			return true
+		}
 	}
 
 	return false
