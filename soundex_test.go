@@ -26,7 +26,9 @@ func TestSoundex(t *testing.T) {
 		{name: "non_alpha", input: "123!@#", want: ""},
 		{name: "spaces_and_hyphens", input: "Van De Graaff", want: "V532"},
 		{name: "unicode_stripped", input: "Rôbért", want: "R163"},
-		{name: "only_unicode", input: "\u00e9\u00e0\u00fc", want: ""},
+		{name: "only_accented", input: "\u00e9\u00e0\u00fc", want: "E000"},
+		{name: "accented_initial", input: "Álvarez", want: "A416"},
+		{name: "eszett", input: "Strauß", want: "S362"},
 		{name: "only_non_latin", input: "東京", want: ""},
 		{name: "Honeyman", input: "Honeyman", want: "H555"},
 	}

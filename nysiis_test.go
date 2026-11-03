@@ -21,7 +21,7 @@ func TestNYSIIS(t *testing.T) {
 		{name: "single_letter", input: "A", want: "A"},
 		{name: "lowercase", input: "brooks", want: "BRAC"},
 		{name: "mixed_case", input: "Brooks", want: "BRAC"},
-		{name: "unicode_stripped", input: "Brööks", want: "BRC"},
+		{name: "diacritics_folded", input: "Brööks", want: "BRAC"},
 		{name: "non_latin_ignored", input: "Brooks東京", want: "BRAC"},
 
 		// Prefix: MAC → MCC
