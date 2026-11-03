@@ -1,77 +1,31 @@
 # Contributing to strsim
 
-Thank you for your interest in contributing to strsim!
-
-## Development Setup
+## Setup
 
 ```bash
 git clone https://github.com/jcoruiz/strsim.git
 cd strsim
+git config core.hooksPath scripts/hooks   # checks commit messages
 go test ./...
 ```
 
-### Requirements
+Go 1.22 or later. No external dependencies.
 
-- Go 1.22 or later
-- No external dependencies needed
+## Before opening a pull request
 
-## Running Tests
+- `go vet ./...` and `go test -race ./...` pass.
+- `gofmt -s -l .` prints nothing and `golangci-lint run` is clean.
+- Coverage stays above 95% (`go test -cover .`).
+- Exported symbols have godoc comments; behaviour that users can see has a runnable `Example` or a test.
+- Commit messages and the PR title follow the conventions in [AGENTS.md](AGENTS.md#git-conventions); user-visible changes get a line under `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
 
-```bash
-# All tests
-go test ./... -v
+Style follows the [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md).
 
-# With coverage
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
+## Adding an algorithm
 
-# Benchmarks
-go test -bench=. -benchmem ./...
+1. Implement it in `algorithm.go` with a `New*` constructor, package-level helpers, and the `Metric`, `DistanceMetric` or `Encoder` interface (add it to the compile-time checks in `strsim.go`).
+2. Make the zero value work like the constructor and add it to `TestZeroValues`.
+3. Write table-driven tests with values from a reference implementation, covering empty strings, identical strings, single characters and Unicode; add it to the fuzz targets in `fuzz_test.go` and a `Benchmark*`.
+4. Document it in README.md.
 
-# Race detector
-go test -race ./...
-```
-
-## Code Standards
-
-- Follow the [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)
-- `go vet ./...` must pass with no warnings
-- `gofmt -s` must produce no changes
-- Test coverage must stay above 95%
-- All exported symbols must have godoc comments
-- Zero external dependencies — stdlib only
-
-## Adding a New Algorithm
-
-1. Create `algorithm.go` with the implementation
-2. Create `algorithm_test.go` with table-driven tests covering:
-   - Normal cases with known expected values
-   - Empty strings (both empty, one empty)
-   - Identical strings
-   - Unicode (Japanese, emoji, accented characters)
-   - Single character strings
-3. Add benchmark functions (`Benchmark*`)
-4. If it's a similarity metric, implement the `Metric` interface
-5. If it's a distance metric, implement the `DistanceMetric` interface
-6. If it's a phonetic encoder, implement the `Encoder` interface
-7. Add convenience top-level functions
-8. Update README.md
-
-## Pull Request Process
-
-1. Fork the repository
-2. Create a feature branch from `main`
-3. Make your changes
-4. Run `go test -race -count=1 ./...`
-5. Run `go vet ./...`
-6. Submit a PR with a clear description
-
-## Release Process
-
-Releases follow [Semantic Versioning](https://semver.org/):
-
-```bash
-git tag v0.x.0
-git push origin v0.x.0
-gh release create v0.x.0 --title "v0.x.0" --notes "Release notes"
-```
+The invariants the package promises are listed in [AGENTS.md](AGENTS.md).
