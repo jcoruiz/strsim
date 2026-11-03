@@ -1,11 +1,13 @@
 package strsim
 
-import "cmp"
-import "slices"
+import (
+	"cmp"
+	"slices"
+)
 
 // FindBestMatch returns the candidate with the highest similarity to query
-// according to the given Metric. If candidates is empty, it returns a Match
-// with Index -1 and Similarity 0.
+// according to the given Metric. Ties go to the earliest candidate. If
+// candidates is empty, it returns a Match with Index -1 and Similarity 0.
 func FindBestMatch(query string, candidates []string, m Metric) Match {
 	if len(candidates) == 0 {
 		return Match{Index: -1}
@@ -24,8 +26,8 @@ func FindBestMatch(query string, candidates []string, m Metric) Match {
 }
 
 // FindTopN returns the top n candidates with the highest similarity to query,
-// sorted by similarity descending. If n exceeds the number of candidates, all
-// candidates are returned.
+// sorted by similarity descending; ties keep the order of candidates. If n
+// exceeds the number of candidates, all candidates are returned.
 func FindTopN(query string, candidates []string, n int, m Metric) []Match {
 	if len(candidates) == 0 || n <= 0 {
 		return nil
@@ -36,7 +38,7 @@ func FindTopN(query string, candidates []string, n int, m Metric) []Match {
 		matches[i] = Match{Index: i, Value: c, Similarity: m.Similarity(query, c)}
 	}
 
-	slices.SortFunc(matches, compareMatchDesc)
+	slices.SortStableFunc(matches, compareMatchDesc)
 
 	if n > len(matches) {
 		n = len(matches)
@@ -46,7 +48,8 @@ func FindTopN(query string, candidates []string, n int, m Metric) []Match {
 }
 
 // FindAboveThreshold returns all candidates whose similarity to query meets or
-// exceeds the given threshold, sorted by similarity descending.
+// exceeds the given threshold, sorted by similarity descending; ties keep the
+// order of candidates.
 func FindAboveThreshold(query string, candidates []string, threshold float64, m Metric) []Match {
 	if len(candidates) == 0 {
 		return nil
@@ -61,7 +64,7 @@ func FindAboveThreshold(query string, candidates []string, threshold float64, m 
 		}
 	}
 
-	slices.SortFunc(matches, compareMatchDesc)
+	slices.SortStableFunc(matches, compareMatchDesc)
 
 	return matches
 }

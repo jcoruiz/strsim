@@ -170,3 +170,33 @@ func BenchmarkFindTopN(b *testing.B) {
 		FindTopN("golang", candidates, 10, m)
 	}
 }
+
+func TestBatch_TiesKeepCandidateOrder(t *testing.T) {
+	// Five distinct strings repeated, so most candidates tie with others.
+	pool := []string{"bb", "ab", "aa", "ba", "cc"}
+	candidates := make([]string, 60)
+	for i := range candidates {
+		candidates[i] = pool[(i*7)%len(pool)]
+	}
+
+	m := NewLevenshtein()
+
+	check := func(name string, matches []Match) {
+		t.Helper()
+		for i := 1; i < len(matches); i++ {
+			if matches[i].Similarity > matches[i-1].Similarity {
+				t.Fatalf("%s: not sorted at %d", name, i)
+			}
+			if matches[i].Similarity == matches[i-1].Similarity && matches[i].Index < matches[i-1].Index {
+				t.Fatalf("%s: tie at %d puts Index %d before %d", name, i, matches[i-1].Index, matches[i].Index)
+			}
+		}
+	}
+
+	check("FindTopN", FindTopN("aa", candidates, len(candidates), m))
+	check("FindAboveThreshold", FindAboveThreshold("aa", candidates, 0, m))
+
+	if got := FindBestMatch("aa", candidates, m); got.Value != "aa" || candidates[got.Index] != "aa" || got.Index != 1 {
+		t.Errorf("FindBestMatch = %+v, want the first \"aa\" (Index 1)", got)
+	}
+}
