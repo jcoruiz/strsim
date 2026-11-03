@@ -164,23 +164,23 @@ func (m *DamerauLevenshteinMetric) Distance(a, b string) int {
 	// da maps each rune to the last row where it was seen.
 	da := make(map[rune]int)
 
-	// d is (lenA+2) x (lenB+2) matrix. Indices are shifted by 1 so that
-	// d[-1][-1] maps to d[0][0].
-	d := make([][]int, lenA+2)
-	for i := range d {
-		d[i] = make([]int, lenB+2)
-	}
+	// Indices are shifted by 1 so that d[-1][-1] maps to d[0][0].
+	// The (lenA+2) x (lenB+2) matrix lives in one slice; at(i, j) is its
+	// index.
+	cols := lenB + 2
+	d := make([]int, (lenA+2)*cols)
+	at := func(i, j int) int { return i*cols + j }
 
 	maxDist := lenA + lenB
-	d[0][0] = maxDist
+	d[0] = maxDist
 
 	for i := 0; i <= lenA; i++ {
-		d[i+1][0] = maxDist
-		d[i+1][1] = i
+		d[at(i+1, 0)] = maxDist
+		d[at(i+1, 1)] = i
 	}
 	for j := 0; j <= lenB; j++ {
-		d[0][j+1] = maxDist
-		d[1][j+1] = j
+		d[at(0, j+1)] = maxDist
+		d[at(1, j+1)] = j
 	}
 
 	for i := 1; i <= lenA; i++ {
@@ -196,18 +196,18 @@ func (m *DamerauLevenshteinMetric) Distance(a, b string) int {
 				db = j
 			}
 
-			d[i+1][j+1] = min(
-				d[i][j]+cost, // substitution
-				d[i+1][j]+1,  // insertion
-				d[i][j+1]+1,  // deletion
-				d[i1][j1]+(i-i1-1)+1+(j-j1-1), // transposition
+			d[at(i+1, j+1)] = min(
+				d[at(i, j)]+cost, // substitution
+				d[at(i+1, j)]+1,  // insertion
+				d[at(i, j+1)]+1,  // deletion
+				d[at(i1, j1)]+(i-i1-1)+1+(j-j1-1), // transposition
 			)
 		}
 
 		da[ra[i-1]] = i
 	}
 
-	return d[lenA+1][lenB+1]
+	return d[at(lenA+1, lenB+1)]
 }
 
 // Similarity returns the normalized similarity between a and b as a value

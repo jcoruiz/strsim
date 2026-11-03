@@ -124,21 +124,22 @@ func damerauLevenshteinASCII(a, b string) int {
 	// Using a fixed 256-byte array instead of a map for speed.
 	var da [256]int
 
-	d := make([][]int, lenA+2)
-	for i := range d {
-		d[i] = make([]int, lenB+2)
-	}
+	// The (lenA+2) x (lenB+2) matrix lives in one slice; at(i, j) is its
+	// index.
+	cols := lenB + 2
+	d := make([]int, (lenA+2)*cols)
+	at := func(i, j int) int { return i*cols + j }
 
 	maxDist := lenA + lenB
-	d[0][0] = maxDist
+	d[0] = maxDist
 
 	for i := 0; i <= lenA; i++ {
-		d[i+1][0] = maxDist
-		d[i+1][1] = i
+		d[at(i+1, 0)] = maxDist
+		d[at(i+1, 1)] = i
 	}
 	for j := 0; j <= lenB; j++ {
-		d[0][j+1] = maxDist
-		d[1][j+1] = j
+		d[at(0, j+1)] = maxDist
+		d[at(1, j+1)] = j
 	}
 
 	for i := 1; i <= lenA; i++ {
@@ -154,18 +155,18 @@ func damerauLevenshteinASCII(a, b string) int {
 				db = j
 			}
 
-			d[i+1][j+1] = min(
-				d[i][j]+cost,
-				d[i+1][j]+1,
-				d[i][j+1]+1,
-				d[i1][j1]+(i-i1-1)+1+(j-j1-1),
+			d[at(i+1, j+1)] = min(
+				d[at(i, j)]+cost,
+				d[at(i+1, j)]+1,
+				d[at(i, j+1)]+1,
+				d[at(i1, j1)]+(i-i1-1)+1+(j-j1-1),
 			)
 		}
 
 		da[a[i-1]] = i
 	}
 
-	return d[lenA+1][lenB+1]
+	return d[at(lenA+1, lenB+1)]
 }
 
 // lcsASCII computes LCS length operating on bytes.
