@@ -12,7 +12,7 @@ String similarity metrics for Go. Edit distance, token-based similarity, and pho
 - **15 algorithms** in a single zero-dependency package
 - **Unified interfaces** — every metric implements `Metric` (similarity) or `DistanceMetric` (distance + similarity)
 - **Unicode-aware** — metrics compare runes, not bytes; phonetic encoders fold Latin diacritics (`Muñoz` encodes like `Munoz`)
-- **Safe edge cases** — similarities are always in `[0, 1]` and never NaN; two empty strings score 1.0; zero-value structs work
+- **Safe edge cases** — similarities are always in `[0, 1]` and never NaN; a string compared with itself scores exactly 1.0, two empty strings included; zero-value structs work
 - **Checked against reference implementations** — distances and Jaro-Winkler match rapidfuzz and jellyfish; phonetic codes match Apache Commons Codec (see [Phonetic Encoding](#phonetic-encoding))
 - **Batch operations** — `FindBestMatch`, `FindTopN`, `FindAboveThreshold`, with deterministic tie order
 

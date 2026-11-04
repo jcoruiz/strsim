@@ -323,3 +323,27 @@ func TestNgramMetric_InvalidUTF8ComparesRunes(t *testing.T) {
 		}
 	}
 }
+
+func TestNgramMetric_CosineOfProportionalVectorsIsOne(t *testing.T) {
+	// The division used to round these to 0.9999999999999998, so
+	// FindAboveThreshold with a threshold of 1 missed exact matches.
+	for _, tt := range []struct {
+		size int
+		a, b string
+	}{
+		{2, "martha", "martha"},
+		{2, "jellyfish", "jellyfish"},
+		{3, "Schmidt", "Schmidt"},
+		{2, "aaa", "aaaaa"},
+		{2, "abcabc", "abcabc"},
+	} {
+		m := &NgramMetric{Size: tt.size}
+		if got := m.Cosine(tt.a, tt.b); got != 1 {
+			t.Errorf("Size %d: Cosine(%q, %q) = %v, want exactly 1", tt.size, tt.a, tt.b, got)
+		}
+	}
+
+	if got := FindAboveThreshold("martha", []string{"marhta", "martha"}, 1, similarity(CosineSimilarity)); len(got) != 1 || got[0].Index != 1 {
+		t.Errorf("FindAboveThreshold at 1 = %+v, want the exact match", got)
+	}
+}

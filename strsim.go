@@ -1,8 +1,9 @@
 // Package strsim provides string similarity metrics, edit distances, and
 // phonetic encoding algorithms with a unified API and no dependencies.
 //
-// Every metric returns a similarity in [0, 1], where 1.0 means identical and
-// two empty strings are identical; none returns NaN. Edit-distance metrics also
+// Every metric returns a similarity in [0, 1]; a string compared with itself
+// scores exactly 1.0, two empty strings included, and none returns NaN.
+// Edit-distance metrics also
 // return the raw distance. All metrics compare runes, not bytes, unless their
 // ASCIIOnly field is set.
 //

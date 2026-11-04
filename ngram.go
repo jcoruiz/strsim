@@ -2,6 +2,7 @@ package strsim
 
 import (
 	"math"
+	"math/bits"
 	"unicode/utf8"
 )
 
@@ -89,26 +90,34 @@ func (m *NgramMetric) Cosine(a, b string) float64 {
 	freqA := ngramFrequency(a, m.size())
 	freqB := ngramFrequency(b, m.size())
 
-	var dot float64
+	// Integer sums, exact, so the proportional case below can be detected.
+	var dot, normA, normB uint64
 
 	for gram, countA := range freqA {
 		if countB, ok := freqB[gram]; ok {
-			dot += float64(countA) * float64(countB)
+			dot += uint64(countA) * uint64(countB)
 		}
 	}
 
-	var normA, normB float64
-
 	for _, c := range freqA {
-		normA += float64(c) * float64(c)
+		normA += uint64(c) * uint64(c)
 	}
 
 	for _, c := range freqB {
-		normB += float64(c) * float64(c)
+		normB += uint64(c) * uint64(c)
 	}
 
-	// Rounding can push identical vectors a hair above 1.
-	return min(dot/(math.Sqrt(normA)*math.Sqrt(normB)), 1.0)
+	// Proportional count vectors, such as those of two equal strings, have a
+	// cosine of exactly 1, but the division below can round it to
+	// 0.9999999999999998. dot² = |A|²·|B|² is that case, compared in 128 bits.
+	dotHi, dotLo := bits.Mul64(dot, dot)
+	normHi, normLo := bits.Mul64(normA, normB)
+	if dotHi == normHi && dotLo == normLo {
+		return 1.0
+	}
+
+	// Rounding can push nearly proportional vectors a hair above 1.
+	return min(float64(dot)/(math.Sqrt(float64(normA))*math.Sqrt(float64(normB))), 1.0)
 }
 
 // Jaccard returns the Jaccard similarity between a and b using set semantics:

@@ -4,7 +4,7 @@ Go library of string similarity metrics, edit distances and phonetic encoders. S
 
 ## Invariants
 
-- Every `Similarity` returns a value in [0, 1], never NaN, and two empty strings score 1.0 (`FuzzMetrics`).
+- Every `Similarity` returns a value in [0, 1], never NaN, and a string compared with itself scores exactly 1.0, two empty strings included (`FuzzMetrics`, which also covers the `NgramMetric` methods).
 - Zero-value structs behave like their `New*` constructor (`TestZeroValues`), except `NYSIISEncoder`, where `MaxLength: 0` means unlimited. Keep it that way when adding fields.
 - The `ASCIIOnly` byte paths in `ascii.go` return exactly what the rune paths return on ASCII input (`FuzzASCIIOnly`); change both together.
 - Batch functions keep the candidates' order on ties (stable sort).
