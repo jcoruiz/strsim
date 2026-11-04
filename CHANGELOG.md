@@ -7,6 +7,15 @@ change results.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-04
+
+### Fixed
+
+- Cosine similarity of a string with itself, or of any two strings with
+  proportional n-gram counts, could be 0.9999999999999998 instead of 1
+  (`CosineSimilarity("martha", "martha")`), so `FindAboveThreshold` with a
+  threshold of 1 missed exact matches. Every other Cosine value is unchanged.
+
 ## [0.2.0] - 2026-11-03
 
 Phonetic codes and some Jaro scores change in this release; recompute any
@@ -60,6 +69,7 @@ First release: Hamming, Levenshtein, OSA, Damerau-Levenshtein, LCS, Jaro,
 Jaro-Winkler, n-gram Cosine/Jaccard/Dice/Overlap, Soundex, Metaphone, Double
 Metaphone and NYSIIS, with batch matching and an ASCII fast path.
 
-[Unreleased]: https://github.com/jcoruiz/strsim/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jcoruiz/strsim/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/jcoruiz/strsim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/jcoruiz/strsim/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jcoruiz/strsim/releases/tag/v0.1.0
