@@ -7,6 +7,11 @@ import (
 	"unicode/utf8"
 )
 
+// similarity turns a method such as NgramMetric.Cosine into a Metric.
+type similarity func(a, b string) float64
+
+func (f similarity) Similarity(a, b string) float64 { return f(a, b) }
+
 func addFuzzPairs(f *testing.F) {
 	for _, p := range [][2]string{
 		{"", ""},
@@ -45,6 +50,10 @@ func FuzzMetrics(f *testing.F) {
 		"Hamming":            NewHamming(),
 		"Ngram":              NewNgram(),
 		"Trigram":            &NgramMetric{Size: 3},
+		"Cosine":             similarity(NewNgram().Cosine),
+		"TrigramCosine":      similarity((&NgramMetric{Size: 3}).Cosine),
+		"Jaccard":            similarity(NewNgram().Jaccard),
+		"Overlap":            similarity(NewNgram().Overlap),
 	}
 	other := map[string]Metric{
 		"LevenshteinCosts": &LevenshteinMetric{InsertCost: 2, DeleteCost: 3, ReplaceCost: 5},
