@@ -200,32 +200,34 @@ match := strsim.FindBestMatch("query", candidates, jw)
 
 | Algorithm | Rune (ns/op) | ASCII (ns/op) | Speedup |
 |---|---|---|---|
-| Hamming | 108 | 10 | **10.7x** |
-| Damerau-Levenshtein | 17,599 | 6,646 | **2.6x** |
-| Jaro-Winkler | 439 | 222 | **2.0x** |
-| Levenshtein | 2,670 | 2,702 | 1.0x |
+| Hamming | 105 | 10 | **10.5x** |
+| Damerau-Levenshtein | 17,248 | 6,243 | **2.8x** |
+| Levenshtein | 2,752 | 2,574 | 1.1x |
+| Jaro-Winkler | 315 | 332 | 0.9x |
 
-Inputs: 43-char ASCII strings.
+Inputs: 43-char ASCII strings; median of five runs. On these inputs the rune path of Jaro-Winkler is as fast as the byte path, so `ASCIIOnly` only saves it allocations (96 B instead of 448 B).
 
 ## Benchmarks
 
-Measured on an AMD Ryzen 9 9950X3D, Go 1.22 (`go test -bench=. -benchmem`):
+Measured on an AMD Ryzen 9 9950X3D with Go 1.22 and strsim v0.2.1, median of five runs (`go test -bench=. -benchmem -count=5`):
 
 | Algorithm | ns/op | B/op | allocs/op |
 |---|---|---|---|
-| Soundex | 34 | 4 | 1 |
+| Soundex | 33 | 4 | 1 |
 | Jaro-Winkler | 35 | 16 | 2 |
-| Hamming | 39 | 0 | 0 |
+| Hamming | 37 | 0 | 0 |
 | Metaphone | 47 | 16 | 2 |
-| Jaro | 55 | 32 | 2 |
-| NYSIIS | 70 | 32 | 2 |
-| Double Metaphone | 132 | 21 | 3 |
-| Jaccard (bigram) | 511 | 896 | 6 |
-| LCS | 531 | 448 | 2 |
-| Cosine (bigram) | 613 | 896 | 6 |
-| Levenshtein | 975 | 448 | 2 |
-| OSA | 1,009 | 672 | 3 |
-| Damerau-Levenshtein | 6,202 | 7,358 | 6 |
+| Jaro | 51 | 32 | 2 |
+| NYSIIS | 72 | 32 | 2 |
+| Double Metaphone | 130 | 21 | 3 |
+| Jaccard (bigram) | 510 | 896 | 6 |
+| LCS | 512 | 448 | 2 |
+| Sørensen-Dice (bigram) | 521 | 896 | 6 |
+| Overlap (bigram) | 548 | 896 | 6 |
+| Cosine (bigram) | 622 | 896 | 6 |
+| Levenshtein | 947 | 448 | 2 |
+| OSA | 1,134 | 672 | 3 |
+| Damerau-Levenshtein | 6,134 | 7,358 | 6 |
 
 Inputs differ per algorithm (26-letter strings for edit distances, names for phonetic encoders); see the `Benchmark*` functions in the test files.
 
