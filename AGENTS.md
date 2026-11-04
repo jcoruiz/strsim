@@ -35,12 +35,12 @@ Tags are `vX.Y.Z`. While on v0, a change in results bumps the minor version. Mov
 
 All git text is written in **English**: commit messages, PR titles and descriptions, branch names.
 
-## Commits — Conventional Commits
+## Commits: Conventional Commits
 
 Format: `<type>(<scope>): <subject>`
 
 - **type** (required): `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `style`, `build`, `ci`, `chore`, `revert`.
-- **scope** (optional): the area touched, lowercase — e.g. `levenshtein`, `damerau`, `hamming`, `jaro`, `lcs`, `ngram`, `phonetic`, `batch`, `ascii`, `examples`.
+- **scope** (optional): the area touched, in lowercase, such as `levenshtein`, `damerau`, `hamming`, `jaro`, `lcs`, `ngram`, `phonetic`, `batch`, `ascii`, `examples`.
 - **subject**: imperative mood, lowercase start, no trailing period, ≤ 72 chars for the whole header.
 - **body** (optional): blank line after the header, then 1–3 short lines or bullets explaining *what/why*. No multi-paragraph prose.
 - **Breaking changes**: `feat(scope)!: ...` plus a `BREAKING CHANGE: ...` footer.
@@ -64,4 +64,4 @@ docs(readme): update benchmark numbers from a fresh run
 
 ## Branches
 
-`<type>/<short-kebab-description>` — e.g. `feat/ngram-ascii-path`, `fix/jaro-transpositions`.
+`<type>/<short-kebab-description>`, such as `feat/ngram-ascii-path`, `fix/jaro-transpositions`.

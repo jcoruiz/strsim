@@ -5,16 +5,18 @@
 [![codecov](https://codecov.io/gh/jcoruiz/strsim/branch/main/graph/badge.svg)](https://codecov.io/gh/jcoruiz/strsim)
 [![Go Reference](https://pkg.go.dev/badge/github.com/jcoruiz/strsim.svg)](https://pkg.go.dev/github.com/jcoruiz/strsim)
 
-String similarity metrics for Go. Edit distance, token-based similarity, and phonetic encoding — all in one package with a unified API.
+String similarity metrics for Go: edit distance, token-based similarity and phonetic encoding, all in one package with a unified API.
+
+**Try it in your browser at [strsim.than.cl](https://strsim.than.cl).** The playground runs strsim compiled to WebAssembly. It compares all 15 algorithms on your own text, shows why each one scores what it does, ranks a list and finds the threshold that fits your data.
 
 ## Features
 
 - **15 algorithms** in a single zero-dependency package
-- **Unified interfaces** — every metric implements `Metric` (similarity) or `DistanceMetric` (distance + similarity)
-- **Unicode-aware** — metrics compare runes, not bytes; phonetic encoders fold Latin diacritics (`Muñoz` encodes like `Munoz`)
-- **Safe edge cases** — similarities are always in `[0, 1]` and never NaN; a string compared with itself scores exactly 1.0, two empty strings included; zero-value structs work
-- **Checked against reference implementations** — distances and Jaro-Winkler match rapidfuzz and jellyfish; phonetic codes match Apache Commons Codec (see [Phonetic Encoding](#phonetic-encoding))
-- **Batch operations** — `FindBestMatch`, `FindTopN`, `FindAboveThreshold`, with deterministic tie order
+- **Unified interfaces**: every metric implements `Metric` (similarity) or `DistanceMetric` (distance + similarity)
+- **Unicode-aware**: metrics compare runes, not bytes; phonetic encoders fold Latin diacritics (`Muñoz` encodes like `Munoz`)
+- **Safe edge cases**: similarities are always in `[0, 1]` and never NaN; a string compared with itself scores exactly 1.0, two empty strings included; zero-value structs work
+- **Checked against reference implementations**: distances and Jaro-Winkler match rapidfuzz and jellyfish; phonetic codes match Apache Commons Codec (see [Phonetic Encoding](#phonetic-encoding))
+- **Batch operations**: `FindBestMatch`, `FindTopN`, `FindAboveThreshold`, with deterministic tie order
 
 ## Quick Start
 
@@ -96,12 +98,12 @@ Codes match [Apache Commons Codec](https://commons.apache.org/proper/commons-cod
 Every metric implements at least one interface, making them interchangeable:
 
 ```go
-// Similarity metric — returns [0, 1] where 1.0 = identical.
+// Metric returns a similarity in [0, 1], where 1.0 means identical.
 type Metric interface {
     Similarity(a, b string) float64
 }
 
-// Distance metric — also returns raw edit distance.
+// DistanceMetric also returns the raw edit distance.
 type DistanceMetric interface {
     Metric
     Distance(a, b string) int
@@ -185,7 +187,7 @@ code := enc.Encode("Washington")  // W25235
 
 ## ASCII Fast Path
 
-The edit-distance metrics, Jaro, and Jaro-Winkler have an `ASCIIOnly` mode that compares bytes instead of runes. On ASCII input it returns exactly the same results as the default mode; on multi-byte UTF-8 input it returns **incorrect results** — use it only when you know your input is ASCII (identifiers, codes, URLs, English text).
+The edit-distance metrics, Jaro, and Jaro-Winkler have an `ASCIIOnly` mode that compares bytes instead of runes. On ASCII input it returns exactly the same results as the default mode; on multi-byte UTF-8 input it returns **incorrect results**. Use it only when you know your input is ASCII (identifiers, codes, URLs, English text).
 
 ```go
 m := &strsim.LevenshteinMetric{ASCIIOnly: true}
@@ -231,10 +233,10 @@ Inputs differ per algorithm (26-letter strings for edit distances, names for pho
 
 The Go ecosystem for string similarity is fragmented across 8+ libraries, each with a subset of algorithms, inconsistent APIs, and known bugs:
 
-- **go-edlib** — NaN on empty strings, float32 precision, no phonetic
-- **strutil** — NaN on empty strings, negative similarity with custom costs
-- **smetrics** — operates on bytes not runes (broken Unicode), Soundex panics on empty input
-- **matchr** — most complete phonetic support but GPLv3 licensed
+- **go-edlib**: NaN on empty strings, float32 precision, no phonetic
+- **strutil**: NaN on empty strings, negative similarity with custom costs
+- **smetrics**: operates on bytes not runes (broken Unicode), Soundex panics on empty input
+- **matchr**: most complete phonetic support but GPLv3 licensed
 
 strsim consolidates everything into one MIT-licensed package with correct Unicode handling, consistent APIs, and no edge-case surprises.
 
